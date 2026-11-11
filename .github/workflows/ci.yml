@@ -56,6 +56,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @catalog/web build
 
+  storybook:
+    runs-on: ubuntu-latest
+    env:
+      STORYBOOK_DISABLE_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: every story renders, runs its play (interaction) test and passes axe
+        run: pnpm --filter @catalog/web test:stories
+      - name: storybook builds
+        run: pnpm --filter @catalog/web build-storybook
+
   nginx-config:
     runs-on: ubuntu-latest
     steps:

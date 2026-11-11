@@ -241,7 +241,7 @@ const BulkForm = ({
   );
 };
 
-const JobPanel = ({
+export const JobPanel = ({
   jobId,
   onFinished,
   onNew,

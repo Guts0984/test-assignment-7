@@ -4,3 +4,5 @@ dist
 .next
 drizzle/meta
 next-env.d.ts
+storybook-static
+.storybook/public
