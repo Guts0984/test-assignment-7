@@ -4,7 +4,7 @@ const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
-  API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+  API_PORT: z.coerce.number().int().min(0).max(65535).default(4000),
   SESSION_SECRET: z.string().min(32),
   COOKIE_SECURE: bool.default(false),
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),

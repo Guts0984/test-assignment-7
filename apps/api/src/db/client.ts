@@ -21,6 +21,9 @@ export const createDb = (
     statement_timeout: 30_000,
   });
   pool.on('error', (e) => opts.onError?.(e));
+  // A client that is checked out when PostgreSQL goes away emits 'error' on itself; with no
+  // listener that would be an uncaught exception and kill the process.
+  pool.on('connect', (client) => client.on('error', (e) => opts.onError?.(e)));
   const db = drizzle(pool, { schema });
   return { db, pool };
 };
