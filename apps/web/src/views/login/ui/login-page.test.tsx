@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
@@ -82,5 +82,17 @@ describe('LoginPage', () => {
   it('disables submit until both fields are filled (no empty requests)', () => {
     renderWithProviders(<LoginPage />);
     expect(screen.getByRole('button', { name: /sign in/i })).toBeDisabled();
+  });
+
+  it('lists the demo accounts; clicking one fills the form and it really signs in', async () => {
+    renderWithProviders(<LoginPage />);
+    const section = screen.getByRole('region', { name: 'Demo accounts' });
+    expect(within(section).getAllByRole('button')).toHaveLength(4);
+    const user = userEvent.setup();
+    await user.click(within(section).getByRole('button', { name: /^editor1/ }));
+    expect(screen.getByLabelText('Login')).toHaveValue('editor1');
+    expect(screen.getByLabelText('Password')).toHaveValue('editor1-pass-123');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(routerMock.replace).toHaveBeenCalledWith('/'));
   });
 });

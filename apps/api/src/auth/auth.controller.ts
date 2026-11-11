@@ -18,6 +18,7 @@ import { RateLimitService } from './rate-limit.service';
 import { SESSION_COOKIE, SessionService } from './session.service';
 
 const MAX_INFLIGHT_LOGINS_PER_IP = 16;
+const KNOWN_ADDRESS_SECONDS = 30 * 24 * 3600;
 
 @ApiTags('auth')
 @Controller()
@@ -80,6 +81,7 @@ export class AuthController {
     //  - per address+login: slows brute force of one account from one address
     //  - per login (high ceiling): safety net against distributed guessing
     // None of them is keyed by something an attacker can use to lock out *another* address.
+    const knownKey = `login:ok:${body.login}:${ip}`;
     const [ipKeyName, pairKey, acctKey] = [
       `login:ip:${ip}`,
       `login:pair:${ip}:${body.login}`,
@@ -95,12 +97,16 @@ export class AuthController {
     // logins cannot create unbounded pair/account rows (storage DoS), it stops after LOGIN_IP_LIMIT.
     const ipHit = await this.limiter.hit(ipKeyName, cfg.LOGIN_WINDOW_SECONDS);
     if (ipHit.count > cfg.LOGIN_IP_LIMIT) block(ipHit.retryAfterSec);
+    // An address that already logged in successfully to THIS account is exempt from the account-wide ceiling.
+    // Otherwise a botnet could lock a user out of his own account (and from his usual address) just by
+    // spamming wrong passwords; an attacker cannot fake a past success. The per-address buckets still apply.
+    const known = await this.limiter.isActive(knownKey, KNOWN_ADDRESS_SECONDS);
     const [pairHit, acctHit] = await Promise.all([
       this.limiter.hit(pairKey, cfg.LOGIN_WINDOW_SECONDS),
-      this.limiter.hit(acctKey, cfg.LOGIN_WINDOW_SECONDS),
+      known ? Promise.resolve(null) : this.limiter.hit(acctKey, cfg.LOGIN_WINDOW_SECONDS),
     ]);
     if (pairHit.count > cfg.LOGIN_PAIR_LIMIT) block(pairHit.retryAfterSec);
-    if (acctHit.count > cfg.LOGIN_ACCOUNT_LIMIT) block(acctHit.retryAfterSec);
+    if (acctHit && acctHit.count > cfg.LOGIN_ACCOUNT_LIMIT) block(acctHit.retryAfterSec);
 
     const rows = await this.db.select().from(users).where(eq(users.login, body.login)).limit(1);
     const user = rows[0];
@@ -115,7 +121,8 @@ export class AuthController {
     await Promise.all([
       this.limiter.reset(pairKey),
       this.limiter.refund(ipKeyName),
-      this.limiter.refund(acctKey),
+      known ? Promise.resolve() : this.limiter.refund(acctKey),
+      this.limiter.mark(knownKey),
     ]);
 
     // Fresh token on every login (no session fixation); drop whatever session was presented.

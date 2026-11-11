@@ -6,7 +6,9 @@ for (const locale of ['en', 'uk'] as const) {
   test(`login page (${locale}): no hydration errors, no axe violations`, async ({ page }) => {
     const hydration = watchHydration(page);
     await page.goto(`/${locale}/login`);
-    await expect(page.getByRole('button')).toBeVisible();
+    await expect(
+      page.getByRole('form').or(page.getByLabel(locale === 'uk' ? 'Логін' : 'Login')),
+    ).toBeVisible();
     const r = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();

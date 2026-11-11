@@ -296,6 +296,32 @@ describe('brute force and rate-limit abuse (one real server, several real source
     expect((await good('admin')).status).toBe(200);
   });
 
+  it('a botnet cannot lock a user out of his own account from an address he has already used', async () => {
+    const usual = freshIp();
+    expect((await login('editor1', TEST_PASSWORDS.editor1, usual)).status).toBe(200); // becomes a known address
+    // 30 other addresses x 4 wrong passwords = 120 attempts at the same account (> the account ceiling of 100)
+    for (let a = 0; a < 30; a++) {
+      const bot = freshIp();
+      for (let i = 0; i < 4; i++) await login('editor1', `botnet-${a}-${i}`, bot);
+    }
+    // an address that has NEVER logged in to this account is throttled while it is under distributed attack...
+    expect((await login('editor1', TEST_PASSWORDS.editor1, freshIp())).status).toBe(429);
+    // ...but the owner's usual address is not locked out, and a wrong password from it is still just a 401
+    expect((await login('editor1', TEST_PASSWORDS.editor1, usual)).status).toBe(200);
+    expect((await login('editor1', 'wrong', usual)).status).toBe(401);
+  });
+
+  it('an attacker cannot become a "known address": wrong passwords never mark it', async () => {
+    const attacker = freshIp();
+    for (let i = 0; i < 3; i++)
+      expect((await login('known-probe', `nope-${i}`, attacker)).status).toBe(401);
+    const rows = await pool.query(
+      `select key from rate_limits where key like 'login:ok:%' and key like '%:' || $1`,
+      [attacker],
+    );
+    expect(rows.rowCount).toBe(0);
+  });
+
   it('the API stays responsive for others while an attacker floods', async () => {
     const attacker = freshIp();
     const flood = Promise.all(

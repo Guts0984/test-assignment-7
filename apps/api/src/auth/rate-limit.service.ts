@@ -38,6 +38,21 @@ export class RateLimitService {
     );
   }
 
+  /** Is there a live entry for this key (younger than `windowSec`)? Does not count anything. */
+  async isActive(key: string, windowSec: number): Promise<boolean> {
+    const r = await this.db.execute<{ one: number }>(
+      sql`select 1 as one from rate_limits where key = ${key} and window_start > now() - make_interval(secs => ${windowSec}::float8)`,
+    );
+    return (r.rows?.length ?? 0) > 0;
+  }
+
+  /** Remember `key` for `windowSec` (sliding from now). */
+  async mark(key: string): Promise<void> {
+    await this.db.execute(sql`
+      insert into rate_limits (key, count, window_start) values (${key}, 1, now())
+      on conflict (key) do update set count = 1, window_start = now()`);
+  }
+
   async reset(key: string): Promise<void> {
     await this.db.execute(sql`delete from rate_limits where key = ${key}`);
   }

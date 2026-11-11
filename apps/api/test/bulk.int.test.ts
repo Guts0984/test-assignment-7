@@ -95,7 +95,7 @@ describe('the spec example: price +10% for a category with status active', () =>
 });
 
 describe('permissions', () => {
-  it('viewer and anonymous cannot create/cancel/revert/preview; viewer can read', async () => {
+  it('viewer and anonymous cannot create/cancel/revert/preview; jobs of others are invisible', async () => {
     const body = { filter: {}, operation: adjust('1', 'stock', 'absolute') };
     expect((await call(s.baseUrl, 'POST', '/bulk-jobs', { body })).status).toBe(401);
     expect((await createJob(s, viewer, body)).status).toBe(403);
@@ -106,12 +106,13 @@ describe('permissions', () => {
     });
     expect((await post(s, viewer, `/bulk-jobs/${job.id}/cancel`)).status).toBe(403);
     expect((await post(s, viewer, `/bulk-jobs/${job.id}/revert`)).status).toBe(403);
+    // jobs are private to their creator (and admins): a viewer sees neither the job nor its existence
     expect(
       (await call(s.baseUrl, 'GET', `/bulk-jobs/${job.id}`, { cookie: viewer.cookie })).status,
-    ).toBe(200);
-    expect((await call(s.baseUrl, 'GET', `/bulk-jobs`, { cookie: viewer.cookie })).status).toBe(
-      200,
-    );
+    ).toBe(404);
+    const vlist = await call(s.baseUrl, 'GET', `/bulk-jobs`, { cookie: viewer.cookie });
+    expect(vlist.status).toBe(200);
+    expect((vlist.body as { jobs: unknown[] }).jobs).toEqual([]);
   });
 
   it('editor over ALL products: foreign categories are skipped with a reason and never modified', async () => {
@@ -154,14 +155,14 @@ describe('permissions', () => {
     );
   });
 
-  it('only the creator or an admin may cancel/revert', async () => {
+  it('only the creator or an admin may see, cancel or revert a job (others get 404, not even its existence)', async () => {
     const job = await startJob(s, editor1, {
       filter: { category: [e1Cats[0] as Category] },
       operation: adjust('1', 'stock', 'absolute'),
     });
-    expect((await post(s, editor2, `/bulk-jobs/${job.id}/cancel`)).status).toBe(403);
+    expect((await post(s, editor2, `/bulk-jobs/${job.id}/cancel`)).status).toBe(404);
     await waitJob(s, editor1, job.id, terminal);
-    expect((await post(s, editor2, `/bulk-jobs/${job.id}/revert`)).status).toBe(403);
+    expect((await post(s, editor2, `/bulk-jobs/${job.id}/revert`)).status).toBe(404);
     expect((await post(s, admin, `/bulk-jobs/${job.id}/revert`)).status).toBe(200); // admin may
     expect((await waitJob(s, admin, job.id, terminal)).status).toBe('reverted');
   });
@@ -176,6 +177,38 @@ describe('permissions', () => {
       (await post(s, admin, '/bulk-jobs/preview', { filter: { status: ['draft'] } })).body,
     ).toMatchObject({
       count: initial.filter((p) => p.status === 'draft').length,
+    });
+  });
+});
+
+describe('job privacy', () => {
+  it('a job (author, filter, skipped SKUs) is visible to its creator and admins only', async () => {
+    const mine = await startJob(s, editor1, {
+      filter: { name: 'zzz-none' },
+      operation: adjust('1', 'stock', 'absolute'),
+    });
+    await waitJob(s, editor1, mine.id, terminal);
+    const get = (who: Session, id: string) =>
+      call(s.baseUrl, 'GET', `/bulk-jobs/${id}`, { cookie: who.cookie });
+    expect((await get(editor1, mine.id)).status).toBe(200);
+    expect((await get(admin, mine.id)).status).toBe(200); // admins see everything
+    for (const other of [editor2, viewer]) {
+      expect((await get(other, mine.id)).status, 'by id').toBe(404);
+      const list = (await call(s.baseUrl, 'GET', '/bulk-jobs', { cookie: other.cookie })).body as {
+        jobs: { id: string }[];
+      };
+      expect(
+        list.jobs.map((j) => j.id),
+        'in the list',
+      ).not.toContain(mine.id);
+    }
+    const mineList = (await call(s.baseUrl, 'GET', '/bulk-jobs', { cookie: editor1.cookie }))
+      .body as { jobs: { id: string }[] };
+    expect(mineList.jobs.map((j) => j.id)).toContain(mine.id);
+    // 404 for "exists but not yours" is indistinguishable from "does not exist"
+    const ghost = await get(editor2, '00000000-0000-4000-8000-000000000000');
+    expect((await get(editor2, mine.id)).body).toMatchObject({
+      error: { code: (ghost.body as { error: { code: string } }).error.code },
     });
   });
 });

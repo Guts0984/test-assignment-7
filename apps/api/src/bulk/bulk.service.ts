@@ -74,7 +74,7 @@ export class BulkService {
         .where(eq(bulkJobs.id, job.id));
       return job.id;
     });
-    return this.get(id);
+    return this.get(me, id);
   }
 
   private async items(jobId: string, states: string[]): Promise<SkipItem[]> {
@@ -124,21 +124,26 @@ export class BulkService {
     };
   }
 
-  async get(id: string): Promise<BulkJob> {
+  /**
+   * A job carries its author, filter and the SKUs it skipped, so it is visible to its creator and to admins
+   * only. Anyone else gets 404 (not 403): the existence of someone else's job is not revealed either.
+   */
+  async get(me: AuthUser, id: string): Promise<BulkJob> {
     const [r] = await this.db
       .select({ j: bulkJobs, login: users.login })
       .from(bulkJobs)
       .leftJoin(users, eq(users.id, bulkJobs.userId))
       .where(eq(bulkJobs.id, id));
-    if (!r) throw notFound('Job not found');
+    if (!r || (me.role !== 'admin' && r.j.userId !== me.id)) throw notFound('Job not found');
     return this.view(r.j, r.login, true);
   }
 
-  async list(): Promise<BulkJob[]> {
+  async list(me: AuthUser): Promise<BulkJob[]> {
     const rows = await this.db
       .select({ j: bulkJobs, login: users.login })
       .from(bulkJobs)
       .leftJoin(users, eq(users.id, bulkJobs.userId))
+      .where(me.role === 'admin' ? undefined : eq(bulkJobs.userId, me.id))
       .orderBy(desc(bulkJobs.createdAt))
       .limit(20);
     return Promise.all(rows.map((r) => this.view(r.j, r.login, false)));
@@ -146,8 +151,7 @@ export class BulkService {
 
   /** Only the creator or an admin may stop or undo a job. */
   private assertOwner(me: AuthUser, userId: string | null): void {
-    if (me.role !== 'admin' && me.id !== userId)
-      throw forbidden('Only the creator or an admin can do this');
+    if (me.role !== 'admin' && me.id !== userId) throw notFound('Job not found'); // same answer as for a missing job
   }
 
   async cancel(me: AuthUser, id: string): Promise<BulkJob> {
@@ -170,7 +174,7 @@ export class BulkService {
         throw httpError(409, 'conflict', `A job that is ${job.status} cannot be cancelled`);
       }
     });
-    return this.get(id);
+    return this.get(me, id);
   }
 
   async revert(me: AuthUser, id: string): Promise<BulkJob> {
@@ -194,7 +198,7 @@ export class BulkService {
         })
         .where(eq(bulkJobs.id, id));
     });
-    return this.get(id);
+    return this.get(me, id);
   }
 }
 

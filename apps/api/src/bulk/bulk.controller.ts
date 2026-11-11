@@ -45,15 +45,15 @@ export class BulkController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Recent jobs (no reports)' })
-  async list(): Promise<{ jobs: BulkJob[] }> {
-    return { jobs: await this.bulk.list() };
+  @ApiOperation({ summary: 'Your recent jobs (all jobs for admins), no reports' })
+  async list(@CurrentUser() me: AuthUser): Promise<{ jobs: BulkJob[] }> {
+    return { jobs: await this.bulk.list(me) };
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Job progress and report' })
-  get(@Param('id', zodPipe(idParam)) id: string): Promise<BulkJob> {
-    return this.bulk.get(id);
+  get(@CurrentUser() me: AuthUser, @Param('id', zodPipe(idParam)) id: string): Promise<BulkJob> {
+    return this.bulk.get(me, id);
   }
 
   @Post(':id/cancel')

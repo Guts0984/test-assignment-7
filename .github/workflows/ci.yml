@@ -91,6 +91,8 @@ jobs:
         run: docker compose up --build -d --wait
       - name: smoke + protection checks through nginx (headers, methods, limits, per-address rate limiting)
         run: scripts/smoke.sh
+      - name: hostile client - spam from many real addresses, lockout, cross-user reads, enumeration, CSRF
+        run: scripts/attack-login.sh
       - if: failure()
         run: docker compose logs
 

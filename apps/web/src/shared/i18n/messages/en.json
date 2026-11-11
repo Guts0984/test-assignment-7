@@ -20,7 +20,17 @@
     "submit": "Sign in",
     "invalid": "Wrong login or password.",
     "rateLimited": "Too many attempts. Try again in {seconds, plural, one {# second} other {# seconds}}.",
-    "unavailable": "The service is unavailable. Try again later."
+    "unavailable": "The service is unavailable. Try again later.",
+    "demo": {
+      "title": "Demo accounts",
+      "hint": "Click an account to fill in the form.",
+      "role": {
+        "admin": "admin — everything",
+        "editor1": "editor — electronics, computers, phones, home appliances, furniture",
+        "editor2": "editor — kitchen, garden, tools, toys, books",
+        "viewer": "viewer — read only"
+      }
+    }
   },
   "catalog": {
     "title": "Product catalog"

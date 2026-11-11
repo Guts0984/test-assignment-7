@@ -52,6 +52,11 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         API_INTERNAL_URL: http://api:4000
+        SHOW_DEMO_LOGINS: ${SHOW_DEMO_LOGINS:-true}
+        SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin-pass-123}
+        SEED_EDITOR1_PASSWORD: ${SEED_EDITOR1_PASSWORD:-editor1-pass-123}
+        SEED_EDITOR2_PASSWORD: ${SEED_EDITOR2_PASSWORD:-editor2-pass-123}
+        SEED_VIEWER_PASSWORD: ${SEED_VIEWER_PASSWORD:-viewer-pass-123}
     init: true
     depends_on:
       api:
