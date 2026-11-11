@@ -82,10 +82,10 @@ axe в юнит/storybook/e2e, склонения (`Intl.PluralRules` / ICU plur
 Multi-stage Dockerfile'ы (api, web), non-root, `docker-compose.yml` (postgres, api, web), миграции+сид автоматически один раз, healthchecks.
 
 ### 18. e2e (Playwright)
-Сценарии из задания §9 (клавиатура, copy/paste/fill, конфликт двух браузеров, bulk с отменой и откатом, restore, права `editor`/`viewer`), Chromium + Firefox + WebKit для гидратации.
+Сценарии из задания §9 (клавиатура, copy/paste/fill, конфликт двух браузеров, bulk с отменой и откатом, restore, права `editor`/`viewer`), Chromium + Firefox + WebKit для гидратации; в CI каждый браузер гоняется отдельным параллельным job'ом (см. этап 19).
 
 ### 19. CI и README
-GitHub Actions: lint, typecheck, unit, integration (service postgres), storybook test, e2e. README по пунктам §10 задания, с логинами/паролями сида, решениями и ограничениями. Финальная сверка с таблицей приёмки (20 пунктов).
+GitHub Actions: lint, typecheck, unit, integration (service postgres), storybook test, e2e. **E2E — отдельная матрица по браузерам** (`chromium`, `firefox`, `webkit`): каждый браузер — свой параллельный job (`strategy.matrix`, `fail-fast: false`), со своим поднятым стеком и своей БД; не последовательно. Внутри job при необходимости — шардирование Playwright (`--shard`). README по пунктам §10 задания, с логинами/паролями сида, решениями и ограничениями. Финальная сверка с таблицей приёмки (20 пунктов).
 
 ## Риски / что проверять особенно
 - Дедлоки при пересекающихся bulk-задачах → единый порядок блокировок.
