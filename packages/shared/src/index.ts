@@ -7,3 +7,4 @@ export * from './auth';
 export * from './batch';
 export * from './history';
 export * from './bulk';
+export * from './filter';

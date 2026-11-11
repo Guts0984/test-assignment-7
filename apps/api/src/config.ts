@@ -19,6 +19,14 @@ const envSchema = z.object({
   LOGIN_ACCOUNT_LIMIT: z.coerce.number().int().min(1).default(100),
   LOGIN_WINDOW_SECONDS: z.coerce.number().int().min(1).default(900),
   BULK_CHUNK_SIZE: z.coerce.number().int().min(1).max(1000).default(100),
+  /** Artificial pause between chunks; 0 in production, used by tests to catch a job mid-flight. */
+  BULK_CHUNK_DELAY_MS: z.coerce.number().int().min(0).default(0),
+  BULK_POLL_MS: z.coerce.number().int().min(10).default(250),
+  BULK_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  /** A job whose worker vanished (kill -9) becomes claimable again after this many seconds. */
+  JOB_LEASE_SECONDS: z.coerce.number().int().min(1).default(30),
+  BULK_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).default(10),
+  BULK_WORKER_ENABLED: bool.default(true),
   SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
   SEED_EDITOR1_PASSWORD: z.string().min(8).optional(),
   SEED_EDITOR2_PASSWORD: z.string().min(8).optional(),

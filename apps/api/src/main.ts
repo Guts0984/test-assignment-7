@@ -4,6 +4,7 @@ import { createApp, logger } from './app';
 import { loadConfig } from './config';
 import { createDb } from './db/client';
 import { createLifecycle } from './common/lifecycle';
+import { startWorker } from './bulk/worker';
 
 const FORCE_EXIT_MS = 20_000;
 const GRACE_MS = 8_000;
@@ -15,6 +16,11 @@ const main = async () => {
     onError: (e) => logger.warn(`pg pool error (will reconnect): ${e.message}`),
   });
   const app = await createApp({ config, db, pool, lifecycle });
+  if (config.BULK_WORKER_ENABLED) {
+    const worker = startWorker(db, config, { warn: (m) => logger.warn(m) });
+    // Stops on a chunk boundary and hands the lease back, so a restarted api resumes at once.
+    lifecycle.onShutdown(worker.stop);
+  }
   await app.listen(config.API_PORT, '0.0.0.0');
   logger.log(`listening on :${config.API_PORT}`);
 

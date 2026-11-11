@@ -74,6 +74,7 @@ export const SKIP_REASONS = [
   'conflict',
   'changed_since',
   'not_found',
+  'unchanged',
 ] as const;
 export const skipItemSchema = z.object({
   productId: z.uuid(),
@@ -103,7 +104,11 @@ export const bulkJobSchema = z.object({
 });
 export type BulkJob = z.infer<typeof bulkJobSchema>;
 
-export const previewResponseSchema = z.object({ count: z.number().int() });
+/** `editable` is how many of the matches the caller may actually change; the rest will be skipped. */
+export const previewResponseSchema = z.object({
+  count: z.number().int(),
+  editable: z.number().int(),
+});
 
 // Re-exported for api convenience when validating `set` values per field.
 export { fieldValueSchemas, priceSchema };

@@ -171,6 +171,8 @@ export const bulkJobs = pgTable(
     skipped: integer('skipped').notNull().default(0),
     revertedCount: integer('reverted_count').notNull().default(0),
     cancelRequested: boolean('cancel_requested').notNull().default(false),
+    /** Who asked for the revert: the revert runs with *their* permissions, not the creator's. */
+    revertUserId: uuid('revert_user_id').references(() => users.id, { onDelete: 'set null' }),
     /** Lease so a crashed worker's job becomes claimable again. */
     leaseUntil: timestamp('lease_until', { withTimezone: true, mode: 'date' }),
     lockedBy: text('locked_by'),

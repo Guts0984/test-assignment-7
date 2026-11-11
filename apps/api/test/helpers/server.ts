@@ -5,6 +5,7 @@ import { loadConfig, type Config } from '../../src/config';
 import { createDb } from '../../src/db/client';
 import { createLifecycle, type Lifecycle } from '../../src/common/lifecycle';
 import { bootstrap } from '../../src/db/bootstrap';
+import { startWorker } from '../../src/bulk/worker';
 import { createTestDatabase, TEST_PASSWORDS } from './db';
 
 export type TestServer = {
@@ -30,6 +31,7 @@ export const startServer = async (env: Record<string, string> = {}): Promise<Tes
   const lifecycle = createLifecycle();
   const { db, pool } = createDb(config.DATABASE_URL, { onError: () => undefined });
   const app = await createApp({ config, db, pool, lifecycle });
+  if (config.BULK_WORKER_ENABLED) lifecycle.onShutdown(startWorker(db, config).stop);
   await app.listen(0, '127.0.0.1');
   const { port } = app.getHttpServer().address() as AddressInfo;
   return {
@@ -40,10 +42,13 @@ export const startServer = async (env: Record<string, string> = {}): Promise<Tes
     databaseUrl: database.url,
     pool,
     stop: async () => {
-      await lifecycle.runShutdownHooks();
-      await app.close();
-      await pool.end().catch(() => undefined);
-      await database.drop();
+      const step = async (_name: string, fn: () => Promise<unknown>) => {
+        await fn();
+      };
+      await step('hooks', () => lifecycle.runShutdownHooks());
+      await step('app.close', () => app.close());
+      await step('pool.end', () => pool.end().catch(() => undefined));
+      await step('drop', () => database.drop());
     },
   };
 };
