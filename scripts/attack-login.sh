@@ -59,6 +59,27 @@ echo "     (a botnet of $(ipof "${BOTS[0]}") ... $(ipof "${BOTS[24]}"))"
 if [ "$RESULT" = 200 ]; then ok "new address not locked out"; else echo "note - a NEW address is throttled while an account is under distributed attack ($RESULT); see next check"; fi
 [ "$(from "$KNOWN" "$good_admin")" = 200 ] && ok "admin from the USUAL address still logs in during the botnet attack" || bad "account lockout DoS: the botnet blocked admin on his usual address"
 
+echo "== 4. a NEIGHBOUR behind the SAME address (office / campus / carrier NAT) cannot lock the real user out"
+# KNOWN is the admin's usual address and is also where the "neighbour" sits (same container = same address)
+for i in 1 2 3 4 5 6 7 8; do from "$KNOWN" "$(login_code admin "neighbour-$i")" >/dev/null; done
+[ "$(from "$KNOWN" "$good_admin")" = 200 ] && ok "admin still logs in from the shared address after 8 wrong guesses by a neighbour" || bad "a neighbour on the same address locked the user out"
+STRANGER="$(client)"
+NEIGH="$(for i in 1 2 3 4 5 6 7 8; do from "$STRANGER" "$(login_code admin "stranger-$i")"; echo; done | sort | uniq -c | tr '\n' ' ')"
+echo "     an address that never logged in as admin, 8 wrong guesses: $NEIGH"
+echo "$NEIGH" | grep -q '429' && ok "a stranger's guessing is capped at 5 per address" || bad "a stranger can guess without limit"
+
+echo "== 4b. a RETURNING user on a NEW address keeps access (device cookie) while the botnet attacks; a stranger does not"
+psql_ -qc "delete from rate_limits" >/dev/null   # the earlier botnet already exhausted the account ceiling; start clean
+DEV1="$(client)"
+from "$DEV1" "curl -s -c /tmp/jar -o /dev/null -X POST -H 'content-type: application/json' -H 'origin: http://localhost:8080' -d '{\"login\":\"admin\",\"password\":\"admin-pass-123\"}' $URL/api/auth/login"
+DID="$(from "$DEV1" "grep -w did /tmp/jar | awk '{print \$7}'")"
+[ -n "$DID" ] && ok "login issued a device cookie" || bad "no device cookie issued"
+NEWADDR="$(client)"; STRANGER2="$(client)"
+for n in $(seq 1 25); do BOT="$(client)"; from "$BOT" "for i in 1 2 3 4 5; do $(login_code admin "bot3-$n-\$i"); echo; done" >/dev/null; done
+[ "$(from "$NEWADDR" "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H 'origin: http://localhost:8080' -H 'cookie: did=$DID' -d '{\"login\":\"admin\",\"password\":\"admin-pass-123\"}' $URL/api/auth/login")" = 200 ] \
+  && ok "the owner's browser logs in from a brand-new address during a botnet attack" || bad "returning user locked out by the botnet"
+[ "$(from "$STRANGER2" "$good_admin")" = 429 ] && ok "a stranger with the right password is still throttled (the botnet is not rewarded)" || echo "note - stranger not throttled"
+
 psql_ -qc "delete from rate_limits" >/dev/null   # fresh limiter state for the remaining checks
 echo "== 5. cross-user data: a viewer must not see another user's background jobs"
 JAR="$(mktemp)"; VJAR="$(mktemp)"

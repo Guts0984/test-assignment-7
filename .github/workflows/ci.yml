@@ -100,6 +100,7 @@ jobs:
   e2e:
     name: e2e (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -115,7 +116,17 @@ jobs:
       - run: cp .env.example .env
       - name: start the stack (nginx -> web + api -> PostgreSQL)
         run: docker compose up --build -d --wait
+      - name: playwright version
+        id: pw
+        run: echo "v=$(pnpm --filter @catalog/web exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: cache ${{ matrix.browser }} binary
+        id: pwcache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ matrix.browser }}-${{ steps.pw.outputs.v }}
       - name: install ${{ matrix.browser }}
+        timeout-minutes: 10 # a stalled download fails fast instead of hanging the job
         run: pnpm --filter @catalog/web exec playwright install --with-deps ${{ matrix.browser }}
       - name: e2e
         run: pnpm --filter @catalog/web exec playwright test --project=${{ matrix.browser }}

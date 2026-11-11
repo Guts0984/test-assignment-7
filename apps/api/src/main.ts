@@ -14,6 +14,11 @@ const main = async () => {
   const { db, pool } = createDb(config.DATABASE_URL, {
     onError: (e) => logger.warn(`pg pool error (will reconnect): ${e.message}`),
   });
+  if (process.env.NODE_ENV === 'production' && !config.COOKIE_SECURE) {
+    logger.warn(
+      'COOKIE_SECURE=false: the session cookie is sent over plain HTTP. Fine for localhost; behind a real domain terminate TLS at the edge and set COOKIE_SECURE=true (README, "TLS").',
+    );
+  }
   const app = await createApp({ config, db, pool, lifecycle });
   if (config.BULK_WORKER_ENABLED) {
     const worker = startWorker(db, config, { warn: (m) => logger.warn(m) });

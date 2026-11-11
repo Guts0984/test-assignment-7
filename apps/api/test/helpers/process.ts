@@ -22,7 +22,6 @@ export const spawnApi = async (
     env: {
       ...process.env,
       DATABASE_URL: databaseUrl,
-      SESSION_SECRET: 'test-secret-test-secret-test-secret-1',
       API_PORT: String(port),
       BULK_POLL_MS: '50',
       BULK_WORKER_CONCURRENCY: '1',

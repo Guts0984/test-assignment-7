@@ -64,4 +64,14 @@ echo "$KEYS" | grep -q 'login:ip:10\.' && fail "limiter trusted a spoofed X-Forw
 docker compose stop api > /dev/null
 [ "$(docker inspect "$(docker compose ps -aq api)" --format '{{.State.ExitCode}}')" = 0 ] && pass "api stops with exit code 0" || fail "api exit code"
 docker compose up -d --wait api > /dev/null
+# 10. the strict login limit cannot be dodged by spelling the URL differently (Express is case-insensitive
+#     and ignores a trailing slash). Empty the bucket with the canonical URL, then every other spelling must be
+#     refused AT THE EDGE at once (nginx's own 429 is HTML; the API's is JSON), because they share the bucket.
+for i in $(seq 1 30); do curl -s -o /dev/null -X POST -H 'content-type: application/json' -d '{"login":"x","password":"y"}' "$BASE/api/auth/login"; done
+for path in /api/auth/LOGIN /api/auth/Login/ /api/auth/login// '/api/auth/%6cogin' '/api/auth/login/?a=b'; do
+  H="$(curl -s -i -X POST -H 'content-type: application/json' -d '{"login":"x","password":"y"}' "$BASE$path" | tr -d '\r')"
+  echo "$H" | head -1 | grep -q ' 429 ' && echo "$H" | grep -qi '^content-type: text/html' \
+    && pass "login limit applies at the edge to $path" || fail "nginx login limit bypassed via $path"
+done
+
 echo "all checks passed"

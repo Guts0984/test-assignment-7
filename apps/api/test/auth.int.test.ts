@@ -3,6 +3,9 @@ import { Pool } from 'pg';
 import { apiErrorSchema, meSchema } from '@catalog/shared';
 import { startServer, type TestServer } from './helpers/server';
 import { call, cookieOf } from './helpers/http';
+import { hashPassword } from '../src/common/password';
+import { RateLimitService } from '../src/auth/rate-limit.service';
+import { createDb } from '../src/db/client';
 import { TEST_PASSWORDS } from './helpers/db';
 
 type Login = keyof typeof TEST_PASSWORDS;
@@ -378,4 +381,113 @@ describe('behind a trusted reverse proxy (TRUST_PROXY_HOPS=1)', () => {
       await proxied.stop();
     }
   }, 30_000);
+});
+
+describe('shared addresses, returning users and mark retention', () => {
+  const PW = 'a-long-test-password';
+  const mkUser = async (login: string) => {
+    await pool.query(`insert into users (login, password_hash, role) values ($1, $2, 'viewer')`, [
+      login,
+      await hashPassword(PW),
+    ]);
+  };
+  const didOf = (r: { setCookie: string[] }) =>
+    r.setCookie
+      .find((c) => c.startsWith('did='))
+      ?.split(';')[0]
+      ?.slice(4);
+  const botnet = async (login: string, addresses = 30, each = 4) => {
+    for (let a = 0; a < addresses; a++) {
+      const bot = freshIp();
+      for (let i = 0; i < each; i++) await login_(login, `bot-${a}-${i}`, bot);
+    }
+  };
+  const login_ = (l: string, pw: string, from: string, cookie?: string) =>
+    call(s.baseUrl, 'POST', '/auth/login', { from, cookie, body: { login: l, password: pw } });
+
+  it('a neighbour behind the SAME address cannot lock the real user out of his usual address', async () => {
+    await mkUser('nat-victim');
+    const shared = freshIp(); // office / campus / carrier NAT
+    expect((await login_('nat-victim', PW, shared)).status).toBe(200); // the victim has used this address
+    for (let i = 0; i < 6; i++)
+      expect((await login_('nat-victim', `neighbour-${i}`, shared)).status).toBe(401); // > 5, not blocked
+    expect((await login_('nat-victim', PW, shared)).status).toBe(200); // the victim still gets in
+  });
+
+  it('...but guessing from that shared address stays capped (the higher limit is not unlimited)', async () => {
+    await mkUser('nat-capped');
+    const shared = freshIp();
+    await login_('nat-capped', PW, shared);
+    const codes: number[] = [];
+    for (let i = 0; i < 40; i++) codes.push((await login_('nat-capped', `g-${i}`, shared)).status);
+    expect(codes.filter((c) => c === 401).length).toBe(25);
+    expect(codes.slice(25).every((c) => c === 429)).toBe(true);
+  });
+
+  it('an address that never logged in is still limited to 5 guesses', async () => {
+    await mkUser('nat-stranger');
+    const codes: number[] = [];
+    for (let i = 0; i < 8; i++)
+      codes.push((await login_('nat-stranger', `g-${i}`, freshIp())).status);
+    const one = freshIp();
+    const many: number[] = [];
+    for (let i = 0; i < 8; i++) many.push((await login_('nat-stranger', `h-${i}`, one)).status);
+    expect(many.filter((c) => c === 401)).toHaveLength(5);
+    expect(codes.every((c) => c === 401)).toBe(true); // 8 different addresses, 1 guess each
+  });
+
+  it('a returning user on a NEW address (device cookie) gets in while a botnet attacks his account; a stranger does not', async () => {
+    await mkUser('dev-victim');
+    const first = await login_('dev-victim', PW, freshIp());
+    const did = didOf(first);
+    expect(first.status).toBe(200);
+    expect(did).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(first.setCookie.find((c) => c.startsWith('did='))).toMatch(/HttpOnly/i);
+    await botnet('dev-victim');
+    expect((await login_('dev-victim', PW, freshIp())).status).toBe(429); // a stranger with the right password: throttled
+    expect((await login_('dev-victim', PW, freshIp(), `did=${did}`)).status).toBe(200); // the owner's browser: fine
+    const stored = await pool.query(
+      `select key from rate_limits where key like 'login:dev:dev-victim:%'`,
+    );
+    expect(stored.rows.map((r) => r.key).join()).not.toContain(did!); // only a hash is stored
+  });
+
+  it("a made-up or another user's device cookie does not exempt anybody", async () => {
+    await mkUser('dev-target');
+    await mkUser('dev-other');
+    const other = didOf(await login_('dev-other', PW, freshIp()))!;
+    await botnet('dev-target');
+    expect((await login_('dev-target', PW, freshIp(), 'did=' + 'A'.repeat(43))).status).toBe(429);
+    expect((await login_('dev-target', PW, freshIp(), `did=${other}`)).status).toBe(429);
+    expect((await login_('dev-target', PW, freshIp(), 'did=short')).status).toBe(429);
+  });
+
+  it('known-address marks survive the purge for 30 days (only counters are short-lived)', async () => {
+    const { db, pool: p2 } = createDb(s.databaseUrl, { max: 2 });
+    const svc = new RateLimitService(db);
+    const ins = (key: string, days: number) =>
+      pool.query(
+        `insert into rate_limits (key, count, window_start) values ($1, 1, now() - make_interval(days => $2))`,
+        [key, days],
+      );
+    await ins('login:ok:purge-test:1.1.1.1', 5); // a mark from 5 days ago: must stay
+    await ins('login:dev:purge-test:abc', 29);
+    await ins('login:ok:purge-test:old', 40); // older than 35 days: goes
+    await ins('login:pair:1.1.1.1:purge-test', 2); // an old counter: goes
+    await ins('login:ip:2.2.2.2', 0); // a fresh counter: stays
+    await svc.purge();
+    const left = (
+      await pool.query(
+        `select key from rate_limits where key like '%purge-test%' or key = 'login:ip:2.2.2.2'`,
+      )
+    ).rows
+      .map((r) => r.key as string)
+      .sort();
+    expect(left).toEqual([
+      'login:dev:purge-test:abc',
+      'login:ip:2.2.2.2',
+      'login:ok:purge-test:1.1.1.1',
+    ]);
+    await p2.end();
+  });
 });

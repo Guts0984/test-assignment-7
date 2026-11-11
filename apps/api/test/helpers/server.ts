@@ -24,7 +24,6 @@ export const startServer = async (env: Record<string, string> = {}): Promise<Tes
   await bootstrap(database.url, TEST_PASSWORDS);
   const config = loadConfig({
     DATABASE_URL: database.url,
-    SESSION_SECRET: 'test-secret-test-secret-test-secret-1',
     API_PORT: '0',
     ...env,
   });

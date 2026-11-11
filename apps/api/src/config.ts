@@ -5,7 +5,6 @@ const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   API_PORT: z.coerce.number().int().min(0).max(65535).default(4000),
-  SESSION_SECRET: z.string().min(32),
   COOKIE_SECURE: bool.default(false),
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
@@ -16,6 +15,8 @@ const envSchema = z.object({
     .default(24 * 7),
   LOGIN_IP_LIMIT: z.coerce.number().int().min(1).default(30),
   LOGIN_PAIR_LIMIT: z.coerce.number().int().min(1).default(5),
+  /** Pair (address+login) limit for an address/device that already logged in to that account. */
+  LOGIN_PAIR_LIMIT_KNOWN: z.coerce.number().int().min(1).default(25),
   LOGIN_ACCOUNT_LIMIT: z.coerce.number().int().min(1).default(100),
   LOGIN_WINDOW_SECONDS: z.coerce.number().int().min(1).default(900),
   /** How long in-flight requests may keep running after SIGTERM before connections are cut. */

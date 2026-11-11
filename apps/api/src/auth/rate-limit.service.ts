@@ -58,8 +58,12 @@ export class RateLimitService {
   }
 
   async purge(): Promise<void> {
+    // Counters are short-lived. "Known address/device" marks (login:ok:*, login:dev:*) live 30 days.
     await this.db.execute(
-      sql`delete from rate_limits where window_start < now() - interval '1 day'`,
+      sql`delete from rate_limits where window_start < now() - interval '1 day' and key not like 'login:ok:%' and key not like 'login:dev:%'`,
+    );
+    await this.db.execute(
+      sql`delete from rate_limits where window_start < now() - interval '35 days'`,
     );
   }
 }
