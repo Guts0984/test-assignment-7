@@ -15,9 +15,12 @@ bad()  { echo "FAIL - $1"; FAILS=$((FAILS + 1)); }
 # Every client is a long-lived container, so each one keeps its OWN source address for the whole run
 # (Docker hands a freed address to the next container, which would silently merge two "users").
 CLIENTS=()
-cleanup() { [ "${#CLIENTS[@]}" -gt 0 ] && docker rm -f "${CLIENTS[@]}" >/dev/null 2>&1; }
-trap cleanup EXIT
-client() { local id; id="$(docker run -d --network "$NET" "$IMG" sleep 1800)"; CLIENTS+=("$id"); echo "$id"; }
+# Every client carries a label, so leftovers of a killed run are found and removed by label.
+LABEL=catalog-attack-client
+cleanup() { docker ps -aq --filter "label=$LABEL" | xargs -r docker rm -f >/dev/null 2>&1; }
+trap cleanup EXIT INT TERM
+cleanup   # leftovers from an earlier interrupted run
+client() { local id; id="$(docker run -d --label "$LABEL" --network "$NET" "$IMG" sleep 1800)"; CLIENTS+=("$id"); echo "$id"; }
 from() { docker exec "$1" sh -c "$2"; }   # from <client> <shell snippet>
 login_code() { # login password
   printf 'curl -s -o /dev/null -w "%%{http_code}" -X POST -H "content-type: application/json" -H "origin: http://localhost:8080" -d '"'"'{"login":"%s","password":"%s"}'"'"' %s/api/auth/login' "$1" "$2" "$URL"
