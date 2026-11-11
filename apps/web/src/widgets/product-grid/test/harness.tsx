@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ChangeSource, Me, ProductRow } from '@catalog/shared';
-import type { CellEdit } from '@/features/edit-cell';
-import type { TableQuery } from '@/entities/product';
+import type { Me, ProductRow } from '@catalog/shared';
+import type { CellEdit, EditSource, TableQuery } from '@/entities/product';
 import { ProductGrid, type GridCommand, type GridStore } from '..';
 import type { AppLocale } from '@/shared/lib/locale';
 
@@ -25,7 +24,7 @@ export const EDITOR: Me = {
 };
 
 export type Harness = {
-  commits: { edits: CellEdit[]; source: ChangeSource }[];
+  commits: { edits: CellEdit[]; source: EditSource }[];
   commands: string[];
   setRows: (rows: ProductRow[]) => void;
   /** Called by the grid wrapper so tests can push new rows in from outside (e.g. a server refetch). */
@@ -56,7 +55,7 @@ export const TestGrid = ({
   useEffect(() => probe.attach(setRows), [probe]);
   const order = useMemo(() => rows.map((r) => r.id), [rows]);
   const commit = useCallback(
-    (edits: CellEdit[], source: ChangeSource) => {
+    (edits: CellEdit[], source: EditSource) => {
       probe.commits.push({ edits, source });
       setRows((cur) => {
         const byId = new Map(edits.map((e) => [e.id, [] as CellEdit[]]));

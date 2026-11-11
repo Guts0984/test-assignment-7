@@ -118,6 +118,7 @@ export const Cell = memo(function Cell({
           locale={locale}
           draft={editing.draft}
           origin={editing.origin}
+          seed={editing.seed}
           invalid={!!error}
           describedBy={errId}
           onChange={(d) => store.getState().updateDraft(d)}

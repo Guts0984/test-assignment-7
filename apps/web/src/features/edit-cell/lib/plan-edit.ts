@@ -4,11 +4,11 @@ import {
   canSetCategory,
   crossFieldErrors,
   parseCellInput,
+  type CellEdit,
   type CellError,
 } from '@/entities/product';
 import type { AppLocale } from '@/shared/lib/locale';
 
-export type CellEdit = { id: string; field: EditableField; value: unknown };
 export type PlanResult = { ok: true; edits: CellEdit[] } | { ok: false; errors: CellError[] };
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);

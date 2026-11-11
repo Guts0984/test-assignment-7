@@ -14,9 +14,17 @@ import {
   type MouseEvent,
   type ReactNode,
 } from 'react';
-import type { ChangeSource, EditableField, Me, ProductRow } from '@catalog/shared';
-import { COLUMNS, canEditRow, editText, type CellError, type TableQuery } from '@/entities/product';
-import { planCellEdit, type CellEdit } from '@/features/edit-cell';
+import type { EditableField, Me, ProductRow } from '@catalog/shared';
+import {
+  COLUMNS,
+  canEditRow,
+  editText,
+  type CellEdit,
+  type CellError,
+  type EditSource,
+  type TableQuery,
+} from '@/entities/product';
+import { planCellEdit } from '@/features/edit-cell';
 import {
   advance,
   arrow,
@@ -60,7 +68,7 @@ export type ProductGridProps = {
   onSort: (field: EditableField) => void;
   renderColumnFilter?: (field: EditableField) => ReactNode;
   /** Applies edits (optimistically) and queues them for the server. */
-  commit: (edits: CellEdit[], source: ChangeSource) => void;
+  commit: (edits: CellEdit[], source: EditSource) => void;
   /** Clipboard / undo / clear are implemented by features; the grid forwards the intent. */
   onCommand?: (cmd: GridCommand, selection: Selection) => void;
   store?: GridStore;
@@ -234,9 +242,12 @@ const GridInner = ({
           draft = hit ?? String(row[col.field] ?? '');
         }
       }
-      store
-        .getState()
-        .startEditing({ pos, draft, origin: replaceWith !== undefined ? 'replace' : 'open' });
+      store.getState().startEditing({
+        pos,
+        draft,
+        origin: replaceWith !== undefined ? 'replace' : 'open',
+        seed: replaceWith,
+      });
     },
     [rowAt, store, t],
   );
@@ -272,6 +283,9 @@ const GridInner = ({
         // Invalid: highlight and explain; nothing is sent. Enter/Tab keep the editor open, leaving (blur/click) does not.
         const patch: Record<string, CellError> = {};
         for (const e of plan.errors) patch[cellKey(row.id, e.field)] = e;
+        // A rule broken on ANOTHER cell (e.g. "active needs a price") must also be explained where the person is looking.
+        const here = cellKey(row.id, col.field);
+        if (!(here in patch) && plan.errors[0]) patch[here] = plan.errors[0];
         store.getState().setErrors(patch);
         if (move === 'none') {
           stopEditing();

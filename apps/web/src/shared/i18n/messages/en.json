@@ -103,6 +103,51 @@
     "readOnly": "You cannot edit this product.",
     "skuDuplicateInBatch": "This SKU appears twice in the same change.",
     "skuTaken": "This SKU already exists.",
-    "categoryForbidden": "You cannot move a product into a category you do not edit."
+    "categoryForbidden": "You cannot move a product into a category you do not edit.",
+    "notFound": "This product no longer exists."
+  },
+  "sync": {
+    "saved": "All changes saved",
+    "saving": "Saving… {count, plural, one {# change} other {# changes}}",
+    "unsaved": "{count, plural, one {# unsaved change} other {# unsaved changes}}",
+    "retrying": "Connection problem — retrying. {count, plural, one {# unsaved change} other {# unsaved changes}}",
+    "error": "Could not save: {message}",
+    "sessionExpired": "Your session has expired. Sign in again; unsaved edits are kept on this page."
+  },
+  "toolbar": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "refreshView": "Refresh view",
+    "staleRows": "{count, plural, one {# row no longer matches the filters} other {# rows no longer match the filters}}",
+    "clearFilters": "Clear filters",
+    "bulk": "Bulk change…",
+    "rows": "{count, plural, one {# product} other {# products}}",
+    "shown": "{shown, number} of {total, number}"
+  },
+  "filter": {
+    "open": "Filter",
+    "apply": "Apply",
+    "clear": "Clear",
+    "contains": "Contains",
+    "min": "From",
+    "max": "To",
+    "invalidNumber": "Enter a valid number",
+    "active": "filter active"
+  },
+  "header": {
+    "signedInAs": "{login} ({role})",
+    "roleadmin": "admin",
+    "roleeditor": "editor",
+    "roleviewer": "viewer",
+    "skip": "Skip to the table"
+  },
+  "conflict": {
+    "title": "Edit conflict",
+    "body": "{author} changed this cell while you were editing.",
+    "bodyUnknown": "Someone changed this cell while you were editing.",
+    "yours": "Yours",
+    "theirs": "Theirs",
+    "keepMine": "Keep mine",
+    "keepTheirs": "Use theirs"
   }
 }

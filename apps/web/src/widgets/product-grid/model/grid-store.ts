@@ -2,9 +2,9 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { EditableField } from '@catalog/shared';
 import type { CellPos, Selection } from '@/shared/lib/grid';
 import { COLUMNS } from '@/entities/product';
-import type { CellError } from '@/entities/product';
+import { cellKey, type CellError, type ConflictInfo } from '@/entities/product';
 
-export const cellKey = (id: string, field: EditableField): string => `${id}:${field}`;
+export { cellKey };
 
 export type EditingState = {
   pos: CellPos;
@@ -12,13 +12,8 @@ export type EditingState = {
   draft: string;
   /** 'replace' = started by typing (caret after the first char), 'open' = F2/Enter/double click. */
   origin: 'replace' | 'open';
-};
-
-export type ConflictInfo = {
-  mine: unknown;
-  theirs: unknown;
-  theirsVersion: number;
-  author: string | null;
+  /** The character that opened the editor (for list type-ahead: "A" then "r" means "Ar..."). */
+  seed?: string;
 };
 
 export type GridState = {

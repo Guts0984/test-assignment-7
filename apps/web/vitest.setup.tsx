@@ -3,20 +3,34 @@ import { cleanup } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { resetMockState } from '@/shared/api/mocks/handlers';
 import { server } from '@/shared/api/mocks/node';
+import { hrefToUrl, navigate, resetNavigation } from '@/shared/lib/test-navigation';
 
-// next-intl's navigation needs the Next router; unit tests use a stand-in.
+// next-intl's navigation needs the Next router; unit tests use a stand-in that really updates the URL.
 export const routerMock = {
-  replace: vi.fn(),
-  push: vi.fn(),
-  back: vi.fn(),
+  replace: vi.fn((href: Parameters<typeof navigate>[0]) => navigate(href, 'replace')),
+  push: vi.fn((href: Parameters<typeof navigate>[0]) => navigate(href, 'push')),
+  back: vi.fn(() => window.history.back()),
   refresh: vi.fn(),
   prefetch: vi.fn(),
 };
+vi.mock('next/navigation', async () => {
+  const nav = await import('@/shared/lib/test-navigation');
+  return { useSearchParams: nav.useSearchParams, usePathname: () => '/', useRouter: () => ({}) };
+});
 vi.mock('@/shared/i18n/navigation', () => ({
   useRouter: () => routerMock,
   usePathname: () => '/',
-  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
-    <a href={href} {...rest}>
+  Link: ({
+    href,
+    children,
+    locale: _l,
+    ...rest
+  }: {
+    href: string | { pathname?: string; query?: Record<string, string> };
+    children: React.ReactNode;
+    locale?: string;
+  }) => (
+    <a href={hrefToUrl(href)} {...rest}>
       {children}
     </a>
   ),
@@ -30,6 +44,7 @@ afterEach(() => {
   server.resetHandlers();
   resetMockState();
   Object.values(routerMock).forEach((f) => f.mockClear());
+  resetNavigation();
 });
 afterAll(() => server.close());
 

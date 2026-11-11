@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import type { Me } from '@catalog/shared';
+import { createMockBackend } from './mock-backend';
 
 /**
  * The single set of API stand-ins: used by unit tests (msw/node) and by Storybook (msw/browser).
@@ -37,11 +38,15 @@ export const USERS: Record<string, { password: string; me: Me }> = {
 
 type State = { current: Me | null };
 const state: State = { current: null };
+export const backend = createMockBackend(2000);
+
 export const resetMockState = (): void => {
   state.current = null;
+  backend.reset();
 };
 export const signInAs = (login: keyof typeof USERS): void => {
   state.current = USERS[login]!.me;
+  backend.signIn(state.current);
 };
 
 const error = (status: number, code: string, message: string, headers?: Record<string, string>) =>
@@ -59,12 +64,14 @@ export const sessionHandlers = [
     if (!u || u.password !== body.password)
       return error(401, 'unauthenticated', 'Invalid login or password');
     state.current = u.me;
+    backend.signIn(u.me);
     return HttpResponse.json(u.me);
   }),
   http.post('*/api/auth/logout', () => {
     state.current = null;
+    backend.signIn(null);
     return new HttpResponse(null, { status: 204 });
   }),
 ];
 
-export const handlers = [...sessionHandlers];
+export const handlers = [...sessionHandlers, ...backend.handlers];

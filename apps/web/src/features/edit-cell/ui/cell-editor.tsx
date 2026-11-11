@@ -12,6 +12,8 @@ export type EditorProps = {
   locale: AppLocale;
   draft: string;
   origin: 'replace' | 'open';
+  /** The character that started the edit; seeds list type-ahead. */
+  seed?: string;
   invalid?: boolean;
   describedBy?: string;
   onChange: (text: string) => void;
@@ -30,6 +32,7 @@ export const CellEditor = ({
   locale,
   draft,
   origin,
+  seed,
   invalid,
   describedBy,
   onChange,
@@ -40,6 +43,8 @@ export const CellEditor = ({
   const col = COLUMN_BY_FIELD[field];
   const ref = useRef<HTMLInputElement & HTMLSelectElement>(null);
   const done = useRef(false);
+  // `at: 0` = seeded but nothing typed yet, so the seed character stays part of the buffer.
+  const typed = useRef({ text: seed ?? '', at: 0 });
 
   useEffect(() => {
     const el = ref.current;
@@ -60,8 +65,26 @@ export const CellEditor = ({
     if (fn() === false) done.current = false; // rejected (invalid): keep editing
   };
 
+  /** Cumulative type-ahead for lists: "A" -> Active, "Ar" -> Archived (the buffer resets after a pause). */
+  const typeAhead = (e: KeyboardEvent) => {
+    if (col.kind !== 'select' || e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+    const now = Date.now();
+    const expired = typed.current.at !== 0 && now - typed.current.at > 800;
+    const buf = expired ? e.key : typed.current.text + e.key;
+    typed.current = { text: buf, at: now };
+    const group = field === 'category' ? 'categories' : 'status';
+    const hit = col.options?.find((o) =>
+      t(`${group}.${o}`).toLowerCase().startsWith(buf.toLowerCase()),
+    );
+    if (hit) {
+      e.preventDefault();
+      onChange(hit);
+    }
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     e.stopPropagation(); // the grid's own key handling must not see keys meant for the editor
+    typeAhead(e);
     switch (e.key) {
       case 'Enter':
         e.preventDefault();

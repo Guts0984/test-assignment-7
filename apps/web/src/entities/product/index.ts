@@ -27,3 +27,6 @@ export {
   productKeys,
   restoreFromHistory,
 } from './api/products-api';
+export { patchRows, type RowPatch } from './model/cache';
+export { getCachedRows, patchCachedRows, useProducts } from './model/use-products';
+export { cellKey, type CellEdit, type ConflictInfo, type EditSource } from './model/types';
