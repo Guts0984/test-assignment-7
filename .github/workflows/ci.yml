@@ -99,8 +99,10 @@ jobs:
   # One parallel job per browser, each with its own freshly started stack (own database): nothing shared.
   e2e:
     name: e2e (${{ matrix.browser }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Pinned: `ubuntu-latest` moved to a new release whose apt mirrors the runner could not resolve, so
+    # `playwright install --with-deps` (which apt-installs system libraries) failed or hung.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -126,8 +128,12 @@ jobs:
           path: ~/.cache/ms-playwright
           key: pw-${{ matrix.browser }}-${{ steps.pw.outputs.v }}
       - name: install ${{ matrix.browser }}
-        timeout-minutes: 10 # a stalled download fails fast instead of hanging the job
-        run: pnpm --filter @catalog/web exec playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          for attempt in 1 2 3; do
+            pnpm --filter @catalog/web exec playwright install --with-deps ${{ matrix.browser }} && exit 0
+            echo "install attempt $attempt failed, retrying"; sleep 10
+          done
+          exit 1
       - name: e2e
         run: pnpm --filter @catalog/web exec playwright test --project=${{ matrix.browser }}
       - if: always()
