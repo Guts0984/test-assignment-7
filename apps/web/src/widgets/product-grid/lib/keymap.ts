@@ -19,6 +19,7 @@ export type GridAction =
   | { type: 'edit'; replaceWith?: string }
   | { type: 'clear' }
   | { type: 'fillDown' }
+  | { type: 'history' }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'escape' };
@@ -51,6 +52,8 @@ export const resolveKey = (e: KeyInput): GridAction | null => {
     if (lower === 'y' && !e.shiftKey) return { type: 'redo' };
     return null; // any other Ctrl/Cmd shortcut belongs to the browser
   }
+  // Alt+H: history of the active cell (other Alt combinations belong to the browser/OS).
+  if (e.altKey && !e.ctrlKey && !e.metaKey && k.toLowerCase() === 'h') return { type: 'history' };
   if (e.altKey) return null;
 
   if (ARROWS[k]) return { type: 'arrow', dir: ARROWS[k]!, extend: e.shiftKey };

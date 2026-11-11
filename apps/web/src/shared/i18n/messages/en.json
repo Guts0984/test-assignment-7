@@ -159,5 +159,34 @@
     "clipped": "{count, plural, one {# value did not fit} other {# values did not fit}}",
     "unchanged": "{count, plural, one {# cell was already the same} other {# cells were already the same}}",
     "fillHandle": "Drag to fill"
+  },
+  "history": {
+    "title": "History: {column}",
+    "open": "Cell history",
+    "loading": "Loading history…",
+    "empty": "No changes yet.",
+    "error": "Could not load the history.",
+    "by": "by {author}",
+    "unknownAuthor": "unknown",
+    "was": "Was",
+    "became": "Now",
+    "restore": "Restore \"{value}\"",
+    "restoring": "Restoring…",
+    "restored": "Value restored.",
+    "restoreConflict": "{author} changed this cell since; reload the value and try again.",
+    "restoreConflictUnknown": "The cell changed since; try again.",
+    "restoreForbidden": "You cannot change this cell.",
+    "restoreInvalid": "This value cannot be restored: it would break a rule.",
+    "restoreFailed": "Could not restore the value.",
+    "emptyValue": "(empty)",
+    "source": {
+      "edit": "edit",
+      "paste": "paste",
+      "fill": "fill",
+      "bulk": "bulk change",
+      "restore": "restore",
+      "revert": "revert",
+      "undo": "undo"
+    }
   }
 }

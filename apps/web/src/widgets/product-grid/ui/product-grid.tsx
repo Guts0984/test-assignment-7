@@ -57,7 +57,8 @@ import { cellDomId } from './cell';
 import { GridHeader, HEADER_HEIGHT } from './header';
 import { GridRow, ROW_HEIGHT } from './row';
 
-export type GridCommand = Extract<GridAction, { type: 'undo' | 'redo' }>;
+export type GridCommand =
+  Extract<GridAction, { type: 'undo' | 'redo' | 'history' }> | { type: 'conflict' };
 
 export type ProductGridProps = {
   rows: readonly ProductRow[];
@@ -115,6 +116,10 @@ const GridInner = ({
   const rowsById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
   // Handlers handed to every row must keep their identity when data changes, or memo cannot skip rows.
   // They read the latest data through this ref instead of closing over it.
+  const onCommandRef = useRef(onCommand);
+  useEffect(() => {
+    onCommandRef.current = onCommand;
+  });
   const latest = useRef({
     rowsById,
     order,
@@ -233,6 +238,11 @@ const GridInner = ({
       const col = COLUMNS[pos.col];
       if (!row || !col) return;
       const key = cellKey(row.id, col.field);
+      // Enter/F2 on a cell in conflict means "resolve it": hand over to the conflict popover.
+      if (store.getState().conflicts[key]) {
+        onCommandRef.current?.({ type: 'conflict' }, store.getState().selection!);
+        return;
+      }
       if (!canEditRow(who, row)) {
         store.getState().setErrors({ [key]: { code: 'readOnly', field: col.field } });
         return;
