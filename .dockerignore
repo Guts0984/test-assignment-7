@@ -1,0 +1,10 @@
+**/node_modules
+**/.next
+**/dist
+**/storybook-static
+**/playwright-report
+**/test-results
+.git
+.github
+.env
+*.md

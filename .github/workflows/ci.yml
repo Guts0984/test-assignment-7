@@ -55,3 +55,23 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @catalog/web build
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - name: docker compose up --build (the only manual step is the cp above)
+        run: docker compose up --build -d --wait
+      - name: smoke through the web proxy
+        run: |
+          curl -fsS -c jar -X POST localhost:3000/api/auth/login -H 'content-type: application/json' -H 'origin: http://localhost:3000' -d '{"login":"admin","password":"admin-pass-123"}'
+          test "$(curl -fsS -b jar localhost:3000/api/products | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["products"]))')" = 2000
+          curl -fsS localhost:3000/uk/login > /dev/null
+          curl -fsS localhost:4000/docs > /dev/null
+      - name: graceful stop exits 0
+        run: |
+          docker compose stop api
+          test "$(docker inspect "$(docker compose ps -aq api)" --format '{{.State.ExitCode}}')" = 0
+      - if: failure()
+        run: docker compose logs

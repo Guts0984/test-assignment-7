@@ -2,6 +2,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { sql } from 'drizzle-orm';
 import { resolve } from 'node:path';
 import { loadConfig } from '../config';
+import { loadRootEnvFile } from '../env-file';
 import { hashPassword } from '../common/password';
 import { createDb, type Db } from './client';
 import { generateProducts, SEED_USERS } from './seed-data';
@@ -56,6 +57,7 @@ export const bootstrap = async (
 };
 
 if (process.argv[1] && /bootstrap\.(ts|cjs|js)$/.test(process.argv[1])) {
+  loadRootEnvFile();
   const cfg = loadConfig();
   const need = (v: string | undefined, name: string): string => {
     if (!v) throw new Error(`${name} must be set (see .env.example)`);

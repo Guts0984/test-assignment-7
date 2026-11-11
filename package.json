@@ -10,7 +10,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test"
+    "test": "pnpm -r --if-present test",
+    "dev": "pnpm -r --parallel --filter @catalog/api --filter @catalog/web dev",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:bootstrap": "pnpm --filter @catalog/api bootstrap"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

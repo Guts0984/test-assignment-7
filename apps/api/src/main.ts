@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import type { Server } from 'node:http';
 import { createApp, logger } from './app';
 import { loadConfig } from './config';
+import { loadRootEnvFile } from './env-file';
 import { createDb } from './db/client';
 import { createLifecycle } from './common/lifecycle';
 import { startWorker } from './bulk/worker';
@@ -10,6 +11,7 @@ const FORCE_EXIT_MS = 20_000;
 const GRACE_MS = 8_000;
 
 const main = async () => {
+  loadRootEnvFile();
   const config = loadConfig();
   const lifecycle = createLifecycle();
   const { db, pool } = createDb(config.DATABASE_URL, {
