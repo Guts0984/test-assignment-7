@@ -14,6 +14,10 @@ const envSchema = z.object({
     .int()
     .min(1)
     .default(24 * 7),
+  LOGIN_IP_LIMIT: z.coerce.number().int().min(1).default(30),
+  LOGIN_PAIR_LIMIT: z.coerce.number().int().min(1).default(5),
+  LOGIN_ACCOUNT_LIMIT: z.coerce.number().int().min(1).default(100),
+  LOGIN_WINDOW_SECONDS: z.coerce.number().int().min(1).default(900),
   BULK_CHUNK_SIZE: z.coerce.number().int().min(1).max(1000).default(100),
   SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
   SEED_EDITOR1_PASSWORD: z.string().min(8).optional(),

@@ -66,3 +66,9 @@ describe('login', () => {
     expect(loginRequestSchema.safeParse({ login: '', password: 'x' }).success).toBe(false);
   });
 });
+
+describe('login control characters', () => {
+  it.each(['a\u0000b', 'a\nb', 'a\u007f', '\u001f'])('rejects %j', (l) => {
+    expect(loginRequestSchema.safeParse({ login: l, password: 'x' }).success).toBe(false);
+  });
+});

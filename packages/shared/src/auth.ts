@@ -5,7 +5,13 @@ export const roleSchema = z.enum(ROLES);
 export type Role = z.infer<typeof roleSchema>;
 
 export const loginRequestSchema = z.object({
-  login: z.string().min(1).max(64),
+  // No control characters (NUL etc.): they are never valid in a login and PostgreSQL refuses them.
+  login: z
+    .string()
+    .min(1)
+    .max(64)
+    // eslint-disable-next-line no-control-regex -- intentionally matching control chars to reject them
+    .regex(/^[^\u0000-\u001f\u007f]+$/, 'control characters are not allowed'),
   password: z.string().min(1).max(256),
 });
 export type LoginRequest = z.infer<typeof loginRequestSchema>;

@@ -48,6 +48,17 @@ export const createApp = async (deps: AppDeps): Promise<INestApplication> => {
     });
   });
   app.use(cookieParser());
+  // CSRF defence in depth (cookies are SameSite=Lax already): state-changing requests that carry an
+  // Origin must come from an allowed origin.
+  const allowed = new Set(cfg.CORS_ORIGIN.split(','));
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && origin && !allowed.has(origin)) {
+      res.status(403).json({ error: { code: 'forbidden', message: 'Origin not allowed' } });
+      return;
+    }
+    next();
+  });
   app.enableCors({ origin: cfg.CORS_ORIGIN.split(','), credentials: true });
   app.useGlobalFilters(new AllExceptionsFilter());
 

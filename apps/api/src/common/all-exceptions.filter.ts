@@ -82,7 +82,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 }
 
-export const mapException = (e: unknown): Mapped => {
+export const mapException = (e: unknown, depth = 0): Mapped => {
+  // Drizzle wraps driver errors ("Failed query") and keeps the original in `cause`.
+  if (
+    depth < 3 &&
+    !(e instanceof HttpException) &&
+    typeof e === 'object' &&
+    e !== null &&
+    'cause' in e &&
+    typeof e.cause === 'object' &&
+    e.cause !== null
+  ) {
+    const inner = mapException(e.cause, depth + 1);
+    if (inner.status !== 500) return inner;
+  }
   if (e instanceof HttpException) {
     const status = e.getStatus();
     const r = e.getResponse();

@@ -2,9 +2,11 @@ import { Controller, Get, HttpCode, Inject, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import type { Pool } from 'pg';
+import { Public } from '../auth/public.decorator';
 import { LIFECYCLE, POOL } from '../common/tokens';
 import type { Lifecycle } from '../common/lifecycle';
 
+@Public()
 @ApiTags('health')
 @Controller()
 export class HealthController {
