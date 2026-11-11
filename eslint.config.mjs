@@ -50,16 +50,16 @@ export default tseslint.config(
       ...jsxA11y.flatConfigs.recommended.rules,
     },
   },
-  ...['pages', 'widgets', 'features', 'entities', 'shared'].map((layer) => ({
+  ...['views', 'widgets', 'features', 'entities', 'shared'].map((layer) => ({
     files: [`apps/web/src/${layer}/**/*.{ts,tsx}`],
     rules: {
       'no-restricted-imports': [
         'error',
         {
-          patterns: ['app', 'pages', 'widgets', 'features', 'entities', 'shared']
+          patterns: ['app', 'views', 'widgets', 'features', 'entities', 'shared']
             .slice(
               0,
-              ['app', 'pages', 'widgets', 'features', 'entities', 'shared'].indexOf(layer) + 1,
+              ['app', 'views', 'widgets', 'features', 'entities', 'shared'].indexOf(layer) + 1,
             )
             .filter((l) => l !== layer)
             .map((l) => ({

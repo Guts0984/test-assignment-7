@@ -57,11 +57,10 @@ describe('resolveKey', () => {
     expect(resolveKey(key('ї'))).toEqual({ type: 'edit', replaceWith: 'ї' });
     expect(resolveKey(key(' '))).toEqual({ type: 'edit', replaceWith: ' ' });
   });
-  it('clipboard, select-all and undo/redo with Ctrl and with Cmd', () => {
+  it('clipboard keys are left to the browser (native copy/cut/paste events); select-all, fill-down and undo/redo with Ctrl and Cmd', () => {
     for (const m of [{ ctrlKey: true }, { metaKey: true }]) {
-      expect(resolveKey(key('c', m))).toEqual({ type: 'copy' });
-      expect(resolveKey(key('x', m))).toEqual({ type: 'cut' });
-      expect(resolveKey(key('v', m))).toEqual({ type: 'paste' });
+      for (const k of ['c', 'x', 'v']) expect(resolveKey(key(k, m))).toBeNull();
+      expect(resolveKey(key('d', m))).toEqual({ type: 'fillDown' });
       expect(resolveKey(key('a', m))).toEqual({ type: 'selectAll' });
       expect(resolveKey(key('z', m))).toEqual({ type: 'undo' });
       expect(resolveKey(key('z', { ...m, shiftKey: true }))).toEqual({ type: 'redo' });

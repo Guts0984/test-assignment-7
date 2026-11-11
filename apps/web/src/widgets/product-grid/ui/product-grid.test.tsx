@@ -168,14 +168,12 @@ describe('keyboard navigation', () => {
     expect(store.getState().selection!.focus).toEqual({ row: 6, col: 1 });
   });
 
-  it('forwards clipboard/undo intents to the feature layer and swallows only keys it owns', async () => {
+  it('forwards undo/redo intents to the page', async () => {
     const { probe } = setup();
     const user = userEvent.setup();
     await user.click(cell(1, 1));
-    await user.keyboard(
-      '{Control>}c{/Control}{Control>}v{/Control}{Control>}z{/Control}{Control>}{Shift>}z{/Shift}{/Control}{Delete}',
-    );
-    expect(probe.commands).toEqual(['copy', 'paste', 'undo', 'redo', 'clear']);
+    await user.keyboard('{Control>}z{/Control}{Control>}{Shift>}z{/Shift}{/Control}');
+    expect(probe.commands).toEqual(['undo', 'redo']);
   });
 });
 

@@ -1,6 +1,11 @@
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+// Local development: the repository's root .env (Next only reads apps/web/.env*). Real env vars win.
+const rootEnv = resolve(import.meta.dirname, '../../.env');
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const withNextIntl = createNextIntlPlugin('./src/shared/i18n/request.ts');
 

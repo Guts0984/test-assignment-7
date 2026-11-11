@@ -149,5 +149,15 @@
     "theirs": "Theirs",
     "keepMine": "Keep mine",
     "keepTheirs": "Use theirs"
+  },
+  "clipboard": {
+    "pasted": "{count, plural, one {# cell pasted} other {# cells pasted}}",
+    "filled": "{count, plural, one {# cell filled} other {# cells filled}}",
+    "cleared": "{count, plural, one {# cell cleared} other {# cells cleared}}",
+    "skippedReadOnly": "{count, plural, one {# read-only cell skipped} other {# read-only cells skipped}}",
+    "invalid": "{count, plural, one {# value was not accepted} other {# values were not accepted}}",
+    "clipped": "{count, plural, one {# value did not fit} other {# values did not fit}}",
+    "unchanged": "{count, plural, one {# cell was already the same} other {# cells were already the same}}",
+    "fillHandle": "Drag to fill"
   }
 }

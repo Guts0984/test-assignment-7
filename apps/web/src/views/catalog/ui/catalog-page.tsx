@@ -15,7 +15,12 @@ import { useMe } from '@/entities/session';
 import { ColumnFilter, useDisplayOrder, useTableQuery } from '@/features/table-query';
 import { SyncIndicator, useProductEdits, type SyncOptions } from '@/features/sync-changes';
 import { AppHeader } from '@/widgets/app-header';
-import { createGridStore, ProductGrid, type GridCommand } from '@/widgets/product-grid';
+import {
+  createGridStore,
+  ProductGrid,
+  type GridCommand,
+  type GridNotice,
+} from '@/widgets/product-grid';
 import { useRouter } from '@/shared/i18n/navigation';
 import type { AppLocale } from '@/shared/lib/locale';
 import { Button } from '@/shared/ui/button';
@@ -28,6 +33,35 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
   const products = useProducts(!!me.data);
   const { query, setQuery } = useTableQuery();
   const [gridStore] = useState(() => createGridStore());
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // What a paste/fill/clear did, in words, for a few seconds (polite live region).
+  const announce = (n: GridNotice) => {
+    const parts: string[] = [];
+    if (n.applied > 0)
+      parts.push(
+        t(
+          n.kind === 'fill'
+            ? 'clipboard.filled'
+            : n.kind === 'clear'
+              ? 'clipboard.cleared'
+              : 'clipboard.pasted',
+          { count: n.applied },
+        ),
+      );
+    else if (n.unchanged > 0 && n.invalid === 0 && n.skippedReadOnly === 0)
+      parts.push(t('clipboard.unchanged', { count: n.unchanged }));
+    if (n.skippedReadOnly > 0)
+      parts.push(t('clipboard.skippedReadOnly', { count: n.skippedReadOnly }));
+    if (n.invalid > 0) parts.push(t('clipboard.invalid', { count: n.invalid }));
+    if (n.clipped > 0) parts.push(t('clipboard.clipped', { count: n.clipped }));
+    setNotice(parts.length ? `${parts.join('. ')}.` : null);
+  };
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(null), 8_000);
+    return () => clearTimeout(id);
+  }, [notice]);
 
   useEffect(() => {
     if (me.data === null) router.replace('/login');
@@ -134,6 +168,7 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
               )}
               commit={edits.commit}
               onCommand={onCommand}
+              onNotice={announce}
               store={gridStore}
             />
           </div>

@@ -18,9 +18,7 @@ export type GridAction =
   | { type: 'advance'; dir: Dir }
   | { type: 'edit'; replaceWith?: string }
   | { type: 'clear' }
-  | { type: 'copy' }
-  | { type: 'cut' }
-  | { type: 'paste' }
+  | { type: 'fillDown' }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'escape' };
@@ -47,9 +45,8 @@ export const resolveKey = (e: KeyInput): GridAction | null => {
     if (k === 'Home') return { type: 'home', ctrl: true, extend: e.shiftKey };
     if (k === 'End') return { type: 'end', ctrl: true, extend: e.shiftKey };
     if (lower === 'a' && !e.shiftKey) return { type: 'selectAll' };
-    if (lower === 'c' && !e.shiftKey) return { type: 'copy' };
-    if (lower === 'x' && !e.shiftKey) return { type: 'cut' };
-    if (lower === 'v' && !e.shiftKey) return { type: 'paste' };
+    // Ctrl/Cmd + C, X, V are NOT handled here: they arrive as native copy/cut/paste events (no permission prompts, works everywhere).
+    if (lower === 'd' && !e.shiftKey) return { type: 'fillDown' };
     if (lower === 'z') return e.shiftKey ? { type: 'redo' } : { type: 'undo' };
     if (lower === 'y' && !e.shiftKey) return { type: 'redo' };
     return null; // any other Ctrl/Cmd shortcut belongs to the browser

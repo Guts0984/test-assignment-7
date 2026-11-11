@@ -1,10 +1,10 @@
 import { setRequestLocale } from 'next-intl/server';
-import { CatalogPage } from '@/pages/catalog';
+import { LoginPage } from '@/views/login';
 
 const Page = async ({ params }: { params: Promise<{ locale: string }> }) => {
   const { locale } = await params;
   setRequestLocale(locale);
-  return <CatalogPage />;
+  return <LoginPage />;
 };
 
 export default Page;

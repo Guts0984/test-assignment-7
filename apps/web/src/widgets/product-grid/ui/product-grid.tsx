@@ -12,6 +12,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
 } from 'react';
 import type { EditableField, Me, ProductRow } from '@catalog/shared';
@@ -41,6 +42,7 @@ import {
   selectionRange,
   single,
   type CellPos,
+  type CellRange,
   type Dir,
   type Selection,
 } from '@/shared/lib/grid';
@@ -49,14 +51,13 @@ import { GridStoreProvider, useGrid, useGridStoreApi } from '../model/grid-conte
 import type { GridStore } from '../model/grid-store';
 import { cellKey } from '../model/grid-store';
 import { resolveKey, type GridAction } from '../lib/keymap';
+import { useGridActions, type GridNotice } from '../model/use-grid-actions';
+import { FillHandle, FillPreview, rangeBox } from '@/features/fill-handle';
 import { cellDomId } from './cell';
 import { GridHeader, HEADER_HEIGHT } from './header';
 import { GridRow, ROW_HEIGHT } from './row';
 
-export type GridCommand = Extract<
-  GridAction,
-  { type: 'copy' | 'cut' | 'paste' | 'undo' | 'redo' | 'clear' }
->;
+export type GridCommand = Extract<GridAction, { type: 'undo' | 'redo' }>;
 
 export type ProductGridProps = {
   rows: readonly ProductRow[];
@@ -71,12 +72,16 @@ export type ProductGridProps = {
   commit: (edits: CellEdit[], source: EditSource) => void;
   /** Clipboard / undo / clear are implemented by features; the grid forwards the intent. */
   onCommand?: (cmd: GridCommand, selection: Selection) => void;
+  /** Reports what a paste / fill / clear did (applied, skipped, invalid) for the page to announce. */
+  onNotice?: (n: GridNotice) => void;
   store?: GridStore;
   initialViewportHeight?: number;
   /** Slot rendered inside the scroll area after the rows (fill handle overlay etc.). */
   overlay?: ReactNode;
   className?: string;
 };
+
+export type { GridNotice };
 
 export const ProductGrid = (props: ProductGridProps) => (
   <GridStoreProvider store={props.store}>
@@ -94,6 +99,7 @@ const GridInner = ({
   renderColumnFilter,
   commit,
   onCommand,
+  onNotice,
   initialViewportHeight = 600,
   overlay,
   className,
@@ -124,6 +130,7 @@ const GridInner = ({
   const widths = useGrid((s) => s.colWidths);
   const activeRow = useGrid((s) => s.selection?.active.row ?? -1);
   const selection = useGrid((s) => s.selection);
+  const isEditing = useGrid((s) => s.editing !== null);
 
   // ---- virtualization -------------------------------------------------------
   const win = useMemo(
@@ -313,6 +320,100 @@ const GridInner = ({
     stopEditing();
   }, [rowAt, stopEditing, store]);
 
+  // ---- bulk actions: copy / cut / paste / clear / fill ------------------------
+  const getCtx = useCallback(
+    () => ({
+      rowAt,
+      dims: latest.current.dims,
+      me: latest.current.me,
+      locale: latest.current.locale,
+      commit: latest.current.commit,
+    }),
+    [rowAt],
+  );
+  const actions = useGridActions(getCtx, onNotice);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [fillPreview, setFillPreview] = useState<CellRange | null>(null);
+
+  const colLeft = useMemo(() => {
+    const out: number[] = [];
+    let x = 0;
+    for (const c of COLUMNS) {
+      out.push(x);
+      x += widths[c.field] ?? c.width;
+    }
+    return out;
+  }, [widths]);
+  const colWidthList = useMemo(() => COLUMNS.map((c) => widths[c.field] ?? c.width), [widths]);
+
+  const startFill = (e: PointerEvent<HTMLDivElement>) => {
+    const sel = store.getState().selection;
+    const vp = viewportRef.current;
+    const grid = contentRef.current;
+    if (!sel || !vp || !grid) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const source = selectionRange(sel);
+    let pointer = { x: e.clientX, y: e.clientY };
+    let ext = source;
+    let raf = 0;
+    const colAt = (x: number) => {
+      for (let i = colLeft.length - 1; i >= 0; i--) if (x >= colLeft[i]!) return i;
+      return 0;
+    };
+    const compute = () => {
+      const rect = grid.getBoundingClientRect();
+      const row = Math.min(
+        Math.max(Math.floor((pointer.y - rect.top - HEADER_HEIGHT) / ROW_HEIGHT), 0),
+        Math.max(0, latest.current.dims.rows - 1),
+      );
+      const col = colAt(pointer.x - rect.left);
+      const dRow = row > source.r2 ? row - source.r2 : row < source.r1 ? source.r1 - row : 0;
+      const dCol = col > source.c2 ? col - source.c2 : col < source.c1 ? source.c1 - col : 0;
+      ext =
+        dRow === 0 && dCol === 0
+          ? source
+          : dRow >= dCol
+            ? { ...source, r1: Math.min(source.r1, row), r2: Math.max(source.r2, row) }
+            : { ...source, c1: Math.min(source.c1, col), c2: Math.max(source.c2, col) };
+      setFillPreview(ext === source ? null : ext);
+    };
+    // Dragging 500 rows needs the viewport to follow the pointer.
+    const tick = () => {
+      const r = vp.getBoundingClientRect();
+      const edge = 36;
+      let dy = 0;
+      if (pointer.y > r.bottom - edge) dy = Math.min(40, (pointer.y - (r.bottom - edge)) / 2 + 4);
+      else if (pointer.y < r.top + HEADER_HEIGHT + edge)
+        dy = -Math.min(40, (r.top + HEADER_HEIGHT + edge - pointer.y) / 2 + 4);
+      if (dy !== 0) {
+        vp.scrollTop += dy;
+        compute();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    const move = (ev: globalThis.PointerEvent) => {
+      pointer = { x: ev.clientX, y: ev.clientY };
+      compute();
+    };
+    const end = (ev: globalThis.PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      if (raf) cancelAnimationFrame(raf);
+      setFillPreview(null);
+      if (ev.type === 'pointerup') {
+        pointer = { x: ev.clientX, y: ev.clientY };
+        compute();
+        if (ext !== source) actions.applyFill(source, ext, ev.ctrlKey || ev.metaKey);
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(tick);
+  };
+
   // ---- keyboard --------------------------------------------------------------
   const pageRows = Math.max(1, Math.floor((viewportHeight - HEADER_HEIGHT) / ROW_HEIGHT) - 1);
 
@@ -352,6 +453,13 @@ const GridInner = ({
       case 'escape': {
         const r = selectionRange(sel);
         if (rangeSize(r) > 1) setSel(single(sel.active));
+        return;
+      }
+      case 'clear':
+        return actions.clearRange(selectionRange(sel));
+      case 'fillDown': {
+        const r = selectionRange(sel);
+        if (r.r2 > r.r1) actions.applyFill({ ...r, r2: r.r1 }, r, false);
         return;
       }
       default:
@@ -435,7 +543,11 @@ const GridInner = ({
           tabIndex={-1}
           className="relative"
           style={{ width: 'var(--w-total)', height: HEADER_HEIGHT + order.length * ROW_HEIGHT }}
+          ref={contentRef}
           onKeyDown={onKeyDown}
+          onCopy={actions.onCopy}
+          onCut={actions.onCut}
+          onPaste={actions.onPaste}
           onMouseDown={onMouseDown}
           // Drag-selection is a pointer enhancement; keyboard users select with Shift+arrows.
           // eslint-disable-next-line jsx-a11y/mouse-events-have-key-events
@@ -464,6 +576,23 @@ const GridInner = ({
               );
             })}
           </div>
+          {selection && !isEditing && (
+            <FillHandle
+              box={rangeBox(
+                selectionRange(selection),
+                colLeft,
+                colWidthList,
+                HEADER_HEIGHT,
+                ROW_HEIGHT,
+              )}
+              onPointerDown={startFill}
+            />
+          )}
+          {fillPreview && (
+            <FillPreview
+              box={rangeBox(fillPreview, colLeft, colWidthList, HEADER_HEIGHT, ROW_HEIGHT)}
+            />
+          )}
           {overlay}
         </div>
         {order.length === 0 && (
