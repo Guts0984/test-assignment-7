@@ -46,13 +46,13 @@ for i in $(seq 1 40); do
 done
 [ "$GOT429" -ge 20 ] && pass "XFF-spoofing flood limited ($GOT429/40 got 429)" || fail "spoofed flood not limited ($GOT429/40)"
 
-# 7. THE KEY CHECK: the attacker above is blocked, an honest user on ANOTHER address is not.
+# 7. THE KEY CHECK: the attacker above is blocked at once, an honest user on ANOTHER address is not.
+#    (Checked right after the flood: the edge bucket refills at 30/min, so a few seconds later one request
+#    would pass nginx, and the API's own per-address ceiling is deliberately higher than what nginx lets through.)
+[ "$(code -X POST -H 'content-type: application/json' -d "$(login_body editor1 wrong)" "$BASE/api/auth/login")" = 429 ] && pass "attacker blocked" || fail "attacker not blocked"
 NET="$(docker inspect "$(docker compose ps -q nginx)" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
 OTHER="$(docker run --rm --network "$NET" curlimages/curl:8.10.1 -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "origin: $ORIGIN" -d "$(login_body viewer viewer-pass-123)" http://nginx:8080/api/auth/login)"
 [ "$OTHER" = 200 ] && pass "honest user on another address logs in while the attacker is blocked" || fail "other user got $OTHER"
-# (not as "admin": this address logged in as admin in step 5, so it is a KNOWN address for that account and is
-#  deliberately exempt from the per-address ceiling - a neighbour must not lock the real user out)
-[ "$(code -X POST -H 'content-type: application/json' -d "$(login_body editor1 wrong)" "$BASE/api/auth/login")" = 429 ] && pass "attacker still blocked" || fail "attacker not blocked"
 
 # 8. the API keyed the limiter on real client addresses, never on nginx's own address
 NGINX_IP="$(docker inspect "$(docker compose ps -q nginx)" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')"
