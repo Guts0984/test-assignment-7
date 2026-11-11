@@ -3,6 +3,7 @@ import {
   bigserial,
   boolean,
   check,
+  customType,
   date,
   index,
   integer,
@@ -16,6 +17,16 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+/**
+ * jsonb that returns exactly what node-pg parsed. Drizzle's built-in jsonb runs JSON.parse a second
+ * time on strings, turning the stored string "12.50" into the number 12.5 and "123" into 123.
+ */
+const jsonbRaw = customType<{ data: unknown; driverData: string | null }>({
+  dataType: () => 'jsonb',
+  toDriver: (v) => (v === null || v === undefined ? null : JSON.stringify(v)),
+  fromDriver: (v) => v,
+});
 
 const ts = (name: string) =>
   timestamp(name, { withTimezone: true, mode: 'date' }).notNull().defaultNow();
@@ -108,8 +119,8 @@ export const productChanges = pgTable(
       .notNull()
       .references(() => products.id, { onDelete: 'cascade' }),
     field: text('field').notNull(),
-    oldValue: jsonb('old_value'),
-    newValue: jsonb('new_value'),
+    oldValue: jsonbRaw('old_value'),
+    newValue: jsonbRaw('new_value'),
     /** Version of the field after this change. */
     version: integer('version').notNull(),
     source: text('source').notNull(),

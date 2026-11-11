@@ -18,8 +18,12 @@ export const nameSchema = z.string().trim().min(1).max(200);
 
 export const priceSchema = z
   .string()
-  .refine(isDecimalString, 'decimal with up to 2 fraction digits')
-  .refine((s) => compareDecimal(s, '0') > 0, 'must be > 0');
+  // One refine on purpose: zod runs every refine even after one failed, and compareDecimal
+  // throws on non-decimal input such as "1e3".
+  .refine(
+    (s) => isDecimalString(s) && compareDecimal(s, '0') > 0,
+    'decimal > 0 with up to 2 fraction digits',
+  );
 export const stockSchema = z.number().int().min(0).max(2_147_483_647);
 
 export const TAG_MAX_LEN = 50;

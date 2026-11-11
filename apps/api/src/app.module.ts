@@ -9,6 +9,9 @@ import { HealthController } from './health/health.controller';
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { RateLimitService } from './auth/rate-limit.service';
+import { ProductsController } from './products/products.controller';
+import { ProductsService } from './products/products.service';
+import { IdempotencyService } from './products/idempotency.service';
 import { SessionService } from './auth/session.service';
 
 export type AppDeps = { config: Config; db: Db; pool: Pool; lifecycle: Lifecycle };
@@ -19,9 +22,11 @@ export class AppModule {
   static register(deps: AppDeps): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, AuthController],
+      controllers: [HealthController, AuthController, ProductsController],
       providers: [
         SessionService,
+        ProductsService,
+        IdempotencyService,
         RateLimitService,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: CONFIG, useValue: deps.config },

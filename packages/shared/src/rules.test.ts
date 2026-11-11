@@ -45,6 +45,9 @@ describe('field values', () => {
     ['price', '0.00'],
     ['price', '-1'],
     ['price', 10], // number, not string: precision rule
+    ['price', '1e3'], // must be rejected, not crash BigInt()
+    ['price', '0x10'],
+    ['price', ' 5'],
     ['price', '1.001'],
     ['stock', -1],
     ['stock', 1.5],

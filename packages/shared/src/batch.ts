@@ -11,10 +11,15 @@ export const changeSchema = z.object({
 });
 export type Change = z.infer<typeof changeSchema>;
 
+/** Where the edit came from; recorded in the history. */
+export const BATCH_SOURCES = ['edit', 'paste', 'fill', 'undo'] as const;
+
 export const batchRequestSchema = z.object({
   changes: z.array(changeSchema).min(1).max(BATCH_MAX),
+  source: z.enum(BATCH_SOURCES).default('edit'),
 });
 export type BatchRequest = z.infer<typeof batchRequestSchema>;
+export type BatchRequestInput = z.input<typeof batchRequestSchema>;
 
 const issueSchema = z.object({
   code: z.string(),
