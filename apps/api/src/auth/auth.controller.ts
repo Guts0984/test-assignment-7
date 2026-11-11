@@ -8,6 +8,7 @@ import type { Db } from '../db/client';
 import { users } from '../db/schema';
 import { DUMMY_HASH_PROMISE, verifyPassword } from '../common/password';
 import { httpError } from '../common/http-error';
+import { createConcurrencyLimiter } from '../common/concurrency';
 import { ipKey } from '../common/ip';
 import { jsonSchema } from '../common/swagger';
 import { zodPipe } from '../common/zod.pipe';
@@ -15,6 +16,8 @@ import { CONFIG, DB } from '../common/tokens';
 import { CurrentUser, Public, type AuthUser } from './public.decorator';
 import { RateLimitService } from './rate-limit.service';
 import { SESSION_COOKIE, SessionService } from './session.service';
+
+const MAX_INFLIGHT_LOGINS_PER_IP = 16;
 
 @ApiTags('auth')
 @Controller()
@@ -25,6 +28,8 @@ export class AuthController {
     @Inject(SessionService) private readonly sessions: SessionService,
     @Inject(RateLimitService) private readonly limiter: RateLimitService,
   ) {}
+
+  private readonly inflight = createConcurrencyLimiter(MAX_INFLIGHT_LOGINS_PER_IP);
 
   private cookieOpts(expires?: Date) {
     return {
@@ -46,8 +51,30 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Me> {
-    const cfg = this.config;
     const ip = ipKey(req.ip);
+    // Before any database work: one address may only have a few logins in flight at once, so a flood
+    // cannot occupy the shared connection pool and starve honest users on other addresses.
+    const release = this.inflight.acquire(ip);
+    if (!release) {
+      res.setHeader('retry-after', '1');
+      throw httpError(429, 'rate_limited', 'Too many simultaneous login attempts', {
+        retryAfterSec: 1,
+      });
+    }
+    try {
+      return await this.attemptLogin(body, req, res, ip);
+    } finally {
+      release();
+    }
+  }
+
+  private async attemptLogin(
+    body: LoginRequest,
+    req: Request,
+    res: Response,
+    ip: string,
+  ): Promise<Me> {
+    const cfg = this.config;
     // Three buckets, all counted *before* the password is checked (so parallel guessing is bounded exactly):
     //  - per client address: one noisy address cannot probe many accounts
     //  - per address+login: slows brute force of one account from one address

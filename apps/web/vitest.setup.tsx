@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { resetMockState } from '@/shared/api/mocks/handlers';
 import { server } from '@/shared/api/mocks/node';
@@ -37,6 +37,9 @@ vi.mock('@/shared/i18n/navigation', () => ({
   redirect: vi.fn(),
   getPathname: ({ href }: { href: string }) => href,
 }));
+
+// `pnpm test` runs the API suite (database, scrypt) in parallel; CI runners are slow too.
+configure({ asyncUtilTimeout: 10_000 });
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {

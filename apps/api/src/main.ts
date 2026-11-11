@@ -7,9 +7,6 @@ import { createDb } from './db/client';
 import { createLifecycle } from './common/lifecycle';
 import { startWorker } from './bulk/worker';
 
-const FORCE_EXIT_MS = 20_000;
-const GRACE_MS = 8_000;
-
 const main = async () => {
   loadRootEnvFile();
   const config = loadConfig();
@@ -34,7 +31,7 @@ const main = async () => {
     const force = setTimeout(() => {
       logger.error('forced exit after timeout');
       process.exit(1);
-    }, FORCE_EXIT_MS);
+    }, config.SHUTDOWN_GRACE_MS + 8_000);
     force.unref();
     try {
       lifecycle.shuttingDown = true; // /ready -> 503 immediately
@@ -42,7 +39,7 @@ const main = async () => {
       // Stop accepting; in-flight requests finish. Idle keep-alive sockets are dropped right away,
       // sockets still stuck mid-request (slow clients) after the grace period are cut.
       const sweep = setInterval(() => server.closeIdleConnections?.(), 100);
-      const grace = setTimeout(() => server.closeAllConnections?.(), GRACE_MS);
+      const grace = setTimeout(() => server.closeAllConnections?.(), config.SHUTDOWN_GRACE_MS);
       await app.close();
       clearInterval(sweep);
       clearTimeout(grace);

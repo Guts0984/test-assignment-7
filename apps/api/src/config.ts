@@ -18,6 +18,8 @@ const envSchema = z.object({
   LOGIN_PAIR_LIMIT: z.coerce.number().int().min(1).default(5),
   LOGIN_ACCOUNT_LIMIT: z.coerce.number().int().min(1).default(100),
   LOGIN_WINDOW_SECONDS: z.coerce.number().int().min(1).default(900),
+  /** How long in-flight requests may keep running after SIGTERM before connections are cut. */
+  SHUTDOWN_GRACE_MS: z.coerce.number().int().min(100).default(20_000),
   BULK_CHUNK_SIZE: z.coerce.number().int().min(1).max(1000).default(100),
   /** Artificial pause between chunks; 0 in production, used by tests to catch a job mid-flight. */
   BULK_CHUNK_DELAY_MS: z.coerce.number().int().min(0).default(0),

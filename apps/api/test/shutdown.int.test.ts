@@ -25,7 +25,8 @@ afterAll(async () => {
 
 describe('SIGTERM', () => {
   it('exits 0 even with a stuck half-open client, and stops accepting', async () => {
-    const api = await spawnApi(databaseUrl);
+    // short grace: the stuck client must not hold the exit for the production default
+    const api = await spawnApi(databaseUrl, { SHUTDOWN_GRACE_MS: '3000' });
     const port = Number(new URL(api.baseUrl).port);
     // A slow client holding a connection mid-request must not prevent a clean exit.
     const sock = net.connect(port, '127.0.0.1');

@@ -464,7 +464,7 @@ describe('revert', () => {
 
   it('cannot revert a job that is still running; double revert while reverting is idempotent', async () => {
     const job = await startJob(s, admin, {
-      filter: {},
+      filter: { category: ['books'] },
       operation: adjust('1', 'stock', 'absolute'),
     });
     expect((await post(s, admin, `/bulk-jobs/${job.id}/revert`)).status).toBe(409);
@@ -474,8 +474,9 @@ describe('revert', () => {
       post(s, admin, `/bulk-jobs/${job.id}/revert`),
     ]);
     expect([a.status, b.status].every((c) => c === 200 || c === 409)).toBe(true);
-    expect(await waitJob(s, admin, job.id, (j) => j.status === 'reverted')).toMatchObject({
-      revertedCount: 2000,
+    const fin = await waitJob(s, admin, job.id, (j) => j.status === 'reverted');
+    expect(fin).toMatchObject({
+      revertedCount: job.total,
     });
   });
 

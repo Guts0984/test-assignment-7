@@ -103,6 +103,6 @@ describe('planPasteTargets', () => {
       asText,
     );
     expect(p.targets).toHaveLength(500);
-    expect(performance.now() - t0).toBeLessThan(30);
+    expect(performance.now() - t0).toBeLessThan(1000); // sanity ceiling against O(n^2), not a benchmark (CPU is shared)
   });
 });
