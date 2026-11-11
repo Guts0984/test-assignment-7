@@ -27,12 +27,14 @@ services:
       # in-network address; everything else comes from .env
       DATABASE_URL: postgres://${POSTGRES_USER:-catalog}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-catalog}
       API_PORT: 4000
-      CORS_ORIGIN: http://localhost:${WEB_PORT:-3000}
+      # the browser's origin is the nginx entry point
+      CORS_ORIGIN: http://localhost:${PUBLIC_PORT:-8080}
+      # exactly one trusted proxy (nginx): the per-user rate limiter reads the real client address from it
+      TRUST_PROXY_HOPS: 1
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - '127.0.0.1:${API_PORT:-4000}:4000'
+    # not published: reachable only through nginx
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4000/ready']
       interval: 3s
@@ -52,14 +54,35 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    ports:
-      - '127.0.0.1:${WEB_PORT:-3000}:3000'
+    # not published: reachable only through nginx
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/uk/login']
       interval: 3s
       timeout: 5s
       retries: 30
       start_period: 5s
+    restart: unless-stopped
+
+  # The only published entry point: http://localhost:8080 serves the web app (/) and the API (/api, /docs).
+  nginx:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${PUBLIC_PORT:-8080}:8080'
+    volumes:
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/nginx-health']
+      interval: 3s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
 
 volumes:
