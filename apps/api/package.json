@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx src/db/bootstrap.ts && tsx watch src/main.ts",
     "build": "tsup",
     "start": "node dist/main.js",
     "bootstrap": "tsx src/db/bootstrap.ts",
