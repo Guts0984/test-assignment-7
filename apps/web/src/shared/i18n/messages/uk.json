@@ -1,0 +1,28 @@
+{
+  "common": {
+    "appName": "Редактор каталогу",
+    "loading": "Завантаження…",
+    "save": "Зберегти",
+    "cancel": "Скасувати",
+    "close": "Закрити",
+    "logout": "Вийти",
+    "language": "Мова",
+    "theme": "Тема",
+    "themeLight": "Світла",
+    "themeDark": "Темна",
+    "themeSystem": "Системна",
+    "retry": "Повторити"
+  },
+  "login": {
+    "title": "Вхід",
+    "login": "Логін",
+    "password": "Пароль",
+    "submit": "Увійти",
+    "invalid": "Невірний логін або пароль.",
+    "rateLimited": "Забагато спроб. Спробуйте за {seconds, plural, one {# секунду} few {# секунди} many {# секунд} other {# секунди}}.",
+    "unavailable": "Сервіс недоступний. Спробуйте пізніше."
+  },
+  "catalog": {
+    "title": "Каталог товарів"
+  }
+}

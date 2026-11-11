@@ -1,0 +1,95 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-ring: var(--ring);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-selected: var(--selected);
+  --color-selected-range: var(--selected-range);
+  --color-readonly: var(--readonly);
+  --color-popover: var(--popover);
+}
+
+/* Contrast-checked pairs (WCAG AA) for both themes. */
+:root {
+  --background: #ffffff;
+  --foreground: #111827;
+  --muted: #f3f4f6;
+  --muted-foreground: #4b5563;
+  --border: #d1d5db;
+  --primary: #1d4ed8;
+  --primary-foreground: #ffffff;
+  --accent: #e5e7eb;
+  --ring: #2563eb;
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+  --warning: #92400e;
+  --warning-soft: #fef3c7;
+  --selected: #dbeafe;
+  --selected-range: #eff6ff;
+  --readonly: #f9fafb;
+  --popover: #ffffff;
+}
+
+.dark {
+  --background: #0b1220;
+  --foreground: #e5e7eb;
+  --muted: #111a2e;
+  --muted-foreground: #9ca3af;
+  --border: #334155;
+  --primary: #3b82f6;
+  --primary-foreground: #06101f;
+  --accent: #1e293b;
+  --ring: #60a5fa;
+  --danger: #fca5a5;
+  --danger-soft: #450a0a;
+  --warning: #fcd34d;
+  --warning-soft: #422006;
+  --selected: #1e3a8a;
+  --selected-range: #172554;
+  --readonly: #0f172a;
+  --popover: #0f172a;
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
