@@ -1,12 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { spawn, type ChildProcess } from 'node:child_process';
-import { openSync } from 'node:fs';
 import { Pool } from 'pg';
 import { bootstrap } from '../src/db/bootstrap';
 import { createTestDatabase, TEST_PASSWORDS } from './helpers/db';
-import { call, cookieOf } from './helpers/http';
+import { killAllSpawned, loginProcess as login, spawnApi as spawnRaw } from './helpers/process';
 import { getJob, startJob, waitJob, terminal } from './helpers/jobs';
-import type { Session } from './helpers/api';
 
 /**
  * Real, separate API processes. The first is killed (SIGKILL = power cut, no cleanup at all, or
@@ -16,53 +13,6 @@ import type { Session } from './helpers/api';
 let databaseUrl: string;
 let drop: () => Promise<void>;
 let pool: Pool;
-let counter = 0;
-const procs: ChildProcess[] = [];
-
-const spawnApi = async (extra: Record<string, string> = {}) => {
-  const port = 4900 + Math.floor(Math.random() * 90) + counter++ * 100;
-  const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
-    env: {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-      SESSION_SECRET: 'test-secret-test-secret-test-secret-1',
-      API_PORT: String(port),
-      BULK_CHUNK_SIZE: '50',
-      BULK_CHUNK_DELAY_MS: '120',
-      BULK_POLL_MS: '50',
-      BULK_WORKER_CONCURRENCY: '1',
-      JOB_LEASE_SECONDS: '2',
-      ...extra,
-    },
-    stdio: [
-      'ignore',
-      openSync(`/tmp/claude-1000/api-${counter}.log`, 'a'),
-      openSync(`/tmp/claude-1000/api-${counter}.log`, 'a'),
-    ],
-  });
-  procs.push(child);
-  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((res) =>
-    child.on('exit', (code, signal) => res({ code, signal })),
-  );
-  const baseUrl = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 150; i++) {
-    try {
-      if ((await fetch(`${baseUrl}/ready`)).status === 200) return { child, baseUrl, exited };
-    } catch {
-      /* not up yet */
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error('api did not start');
-};
-
-const login = async (baseUrl: string): Promise<Session> => {
-  const r = await call(baseUrl, 'POST', '/auth/login', {
-    body: { login: 'admin', password: TEST_PASSWORDS.admin },
-  });
-  return { cookie: cookieOf(r)!, login: 'admin' };
-};
-
 beforeAll(async () => {
   const db = await createTestDatabase();
   databaseUrl = db.url;
@@ -72,7 +22,7 @@ beforeAll(async () => {
   pool.on('error', () => undefined);
 }, 60_000);
 afterAll(async () => {
-  for (const p of procs) if (p.exitCode === null) p.kill('SIGKILL');
+  killAllSpawned();
   await pool?.end();
   await drop?.();
 });
@@ -94,6 +44,14 @@ const exactlyOnce = async (jobId: string, before: Map<string, number>, delta: nu
   expect(h.rowCount).toBe(2000);
   expect(h.rows.every((r) => r.n === 1)).toBe(true);
 };
+
+const spawnApi = (extra: Record<string, string> = {}) =>
+  spawnRaw(databaseUrl, {
+    BULK_CHUNK_SIZE: '50',
+    BULK_CHUNK_DELAY_MS: '120',
+    JOB_LEASE_SECONDS: '2',
+    ...extra,
+  });
 
 describe('API restarted in the middle of a job', () => {
   it('kill -9 mid-job: another process takes over after the lease, nothing is applied twice or lost', async () => {
