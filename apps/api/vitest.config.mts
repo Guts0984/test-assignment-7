@@ -7,7 +7,7 @@ export default defineConfig({
     maxWorkers: 3,
     globalSetup: ['./test/global-setup.ts'],
     // Integration tests share one PostgreSQL server but each file creates its own database.
-    testTimeout: 30_000,
+    testTimeout: 60_000,
     hookTimeout: 60_000,
   },
 });

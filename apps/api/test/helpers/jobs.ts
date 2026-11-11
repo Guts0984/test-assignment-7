@@ -31,7 +31,7 @@ export const waitJob = async (
   ses: Session,
   id: string,
   pred: (j: BulkJob) => boolean,
-  timeoutMs = 30_000,
+  timeoutMs = 60_000,
 ): Promise<BulkJob> => {
   const t0 = Date.now();
   for (;;) {

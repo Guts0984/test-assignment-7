@@ -6,3 +6,6 @@ drizzle/meta
 next-env.d.ts
 storybook-static
 .storybook/public
+apps/web/e2e/.auth
+playwright-report
+test-results
