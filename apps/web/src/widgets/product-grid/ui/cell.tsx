@@ -73,7 +73,9 @@ export const Cell = memo(function Cell({
   })();
 
   const columnLabel = t(`columns.${field}`);
-  const label = `${t('grid.cellLabel', { column: columnLabel, value: text || t('grid.emptyValue') })}${readOnly ? `, ${t('grid.readOnly')}` : ''}${saving ? `, ${t('grid.saving')}` : ''}${conflict ? `, ${t('grid.conflict')}` : ''}`;
+  // The accessible name must contain the visible text (WCAG 2.5.3): chips are shown space-separated.
+  const spoken = field === 'tags' ? text.replace(/,\s*/g, ' ') : text;
+  const label = `${t('grid.cellLabel', { column: columnLabel, value: spoken || t('grid.emptyValue') })}${readOnly ? `, ${t('grid.readOnly')}` : ''}${saving ? `, ${t('grid.saving')}` : ''}${conflict ? `, ${t('grid.conflict')}` : ''}`;
 
   return (
     <div
@@ -130,6 +132,7 @@ export const Cell = memo(function Cell({
           {(value as string[]).map((tag) => (
             <span key={tag} className="rounded bg-accent px-1.5 py-0.5 text-xs">
               {tag}
+              {/* a real space between chips: assistive tech and axe read the cell text as "new sale", not "newsale" */}{' '}
             </span>
           ))}
         </span>

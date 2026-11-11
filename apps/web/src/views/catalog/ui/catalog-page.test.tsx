@@ -420,4 +420,18 @@ describe('misc', () => {
     expect(typeof within).toBe('function');
     expect(typeof indicator).toBe('function');
   });
+
+  it('after a paste the toolbar says what happened (applied / skipped counts)', async () => {
+    await renderPage();
+    const user = userEvent.setup();
+    await user.click(cell(0, 5));
+    const grid = screen.getByRole('grid');
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.paste(grid, {
+      clipboardData: { getData: () => '11\n22\nabc', setData: () => undefined },
+    });
+    expect(
+      await screen.findByText(/2 cells pasted\. 1 value was not accepted\./),
+    ).toBeInTheDocument();
+  });
 });

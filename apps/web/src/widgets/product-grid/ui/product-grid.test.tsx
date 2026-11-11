@@ -177,6 +177,16 @@ describe('keyboard navigation', () => {
   });
 });
 
+describe('keyboard entry', () => {
+  it('Tab-ing into the grid focuses the first cell, and the very next arrow key moves from it', async () => {
+    const { store } = setup();
+    cell(0, 0).focus(); // what Tab does: DOM focus, no mouse click
+    expect(store.getState().selection?.active).toEqual({ row: 0, col: 0 });
+    await userEvent.setup().keyboard('{ArrowDown}{ArrowRight}');
+    expect(document.activeElement).toBe(cell(1, 1));
+  });
+});
+
 describe('editing from the keyboard', () => {
   it('typing starts an edit with that character; Enter commits and moves down', async () => {
     const { probe, store } = setup();

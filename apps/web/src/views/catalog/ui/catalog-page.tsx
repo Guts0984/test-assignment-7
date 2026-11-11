@@ -196,6 +196,11 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
             </Button>
           </span>
         )}
+        {notice && (
+          <span role="status" aria-live="polite" className="text-sm text-muted-foreground">
+            {notice}
+          </span>
+        )}
         <span className="flex-1" />
         {me.data.role !== 'viewer' && (
           <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>

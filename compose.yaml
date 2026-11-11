@@ -31,6 +31,8 @@ services:
       CORS_ORIGIN: http://localhost:${PUBLIC_PORT:-8080}
       # exactly one trusted proxy (nginx): the per-user rate limiter reads the real client address from it
       TRUST_PROXY_HOPS: 1
+      # 0 in production; e2e raises it so a bulk job is slow enough to be cancelled mid-way
+      BULK_CHUNK_DELAY_MS: ${BULK_CHUNK_DELAY_MS:-0}
     depends_on:
       postgres:
         condition: service_healthy

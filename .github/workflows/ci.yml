@@ -93,3 +93,35 @@ jobs:
         run: scripts/smoke.sh
       - if: failure()
         run: docker compose logs
+
+  # One parallel job per browser, each with its own freshly started stack (own database): nothing shared.
+  e2e:
+    name: e2e (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    env:
+      BULK_CHUNK_DELAY_MS: '150' # slow enough for the cancel-mid-way scenario
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: cp .env.example .env
+      - name: start the stack (nginx -> web + api -> PostgreSQL)
+        run: docker compose up --build -d --wait
+      - name: install ${{ matrix.browser }}
+        run: pnpm --filter @catalog/web exec playwright install --with-deps ${{ matrix.browser }}
+      - name: e2e
+        run: pnpm --filter @catalog/web exec playwright test --project=${{ matrix.browser }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: apps/web/playwright-report
+          retention-days: 7
+      - if: failure()
+        run: docker compose logs --tail=200

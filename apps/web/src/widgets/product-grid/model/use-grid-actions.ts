@@ -44,7 +44,12 @@ export const resetInternalClipboard = (): void => {
  * Copy, cut, paste, clear, fill: everything that changes MANY cells at once. Each of them produces one
  * `commit` call, so it is one request batch and one undo step.
  */
-export const useGridActions = (getCtx: () => ActionCtx, onNotice?: (n: GridNotice) => void) => {
+export const useGridActions = (
+  getCtx: () => ActionCtx,
+  onNotice?: (n: GridNotice) => void,
+  /** Called after a native copy/cut/paste was handled (the grid hands focus back to the active cell). */
+  afterClipboard?: () => void,
+) => {
   const t = useTranslations();
   const store = useGridStoreApi();
 
@@ -89,6 +94,12 @@ export const useGridActions = (getCtx: () => ActionCtx, onNotice?: (n: GridNotic
     [getCtx, onNotice, store],
   );
 
+  /** True for a real text field (an editor); the grid's own hidden clipboard proxy does not count. */
+  const isFieldTarget = (e: ClipboardEvent): boolean => {
+    const t = e.target as HTMLElement;
+    return !!t.closest('input,select,textarea') && !t.closest('[data-clip-proxy]');
+  };
+
   const copyPayload = useCallback((): CopyPayload | null => {
     const sel = store.getState().selection;
     if (!sel) return null;
@@ -98,15 +109,15 @@ export const useGridActions = (getCtx: () => ActionCtx, onNotice?: (n: GridNotic
 
   const onCopy = useCallback(
     (e: ClipboardEvent) => {
-      if (store.getState().editing || (e.target as HTMLElement).closest('input,select,textarea'))
-        return; // native copy inside an editor
+      if (store.getState().editing || isFieldTarget(e)) return; // native copy inside an editor
       const payload = copyPayload();
       if (!payload) return;
       e.clipboardData.setData('text/plain', payload.text);
       e.preventDefault();
       lastCopy = payload;
+      afterClipboard?.();
     },
-    [copyPayload, store],
+    [afterClipboard, copyPayload, store],
   );
 
   /** Delete / cut: empty the cells that can be emptied (optional fields, tags). Required fields keep their value. */
@@ -128,8 +139,7 @@ export const useGridActions = (getCtx: () => ActionCtx, onNotice?: (n: GridNotic
 
   const onCut = useCallback(
     (e: ClipboardEvent) => {
-      if (store.getState().editing || (e.target as HTMLElement).closest('input,select,textarea'))
-        return;
+      if (store.getState().editing || isFieldTarget(e)) return;
       const payload = copyPayload();
       const sel = store.getState().selection;
       if (!payload || !sel) return;
@@ -137,14 +147,14 @@ export const useGridActions = (getCtx: () => ActionCtx, onNotice?: (n: GridNotic
       e.preventDefault();
       lastCopy = payload;
       clearRange(selectionRange(sel));
+      afterClipboard?.();
     },
-    [clearRange, copyPayload, store],
+    [afterClipboard, clearRange, copyPayload, store],
   );
 
   const onPaste = useCallback(
     (e: ClipboardEvent) => {
-      if (store.getState().editing || (e.target as HTMLElement).closest('input,select,textarea'))
-        return;
+      if (store.getState().editing || isFieldTarget(e)) return;
       const sel = store.getState().selection;
       if (!sel) return;
       e.preventDefault();
@@ -169,6 +179,7 @@ export const useGridActions = (getCtx: () => ActionCtx, onNotice?: (n: GridNotic
           return { text: cellText };
         },
       );
+      afterClipboard?.();
       if (area.targets.length === 0) return;
       finish('paste', planCellValues(area.targets, { rowAt, me, locale }), area.clipped);
       if (area.area) {
@@ -179,7 +190,7 @@ export const useGridActions = (getCtx: () => ActionCtx, onNotice?: (n: GridNotic
         });
       }
     },
-    [finish, getCtx, selectLookup, store],
+    [afterClipboard, finish, getCtx, selectLookup, store],
   );
 
   /** Fill from `source` to `extended`: copy or continue a numeric/date/text series. One action. */
@@ -206,5 +217,8 @@ export const useGridActions = (getCtx: () => ActionCtx, onNotice?: (n: GridNotic
     [finish, getCtx, store],
   );
 
-  return { onCopy, onCut, onPaste, clearRange, applyFill };
+  /** Text the proxy field must hold so that a native Ctrl+C copies the selection. */
+  const copyText = useCallback((): string | null => copyPayload()?.text ?? null, [copyPayload]);
+
+  return { onCopy, onCut, onPaste, clearRange, applyFill, copyText };
 };

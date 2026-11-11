@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
@@ -341,7 +342,13 @@ const GridInner = ({
     }),
     [rowAt],
   );
-  const actions = useGridActions(getCtx, onNotice);
+  const clipProxy = useRef<HTMLTextAreaElement>(null);
+  const focusActiveCell = useCallback(() => {
+    const a = store.getState().selection?.active;
+    // Synchronous: keystrokes that follow immediately must reach the grid, not the hidden proxy field.
+    if (a) document.getElementById(cellDomId(gridId, a.row, a.col))?.focus({ preventScroll: true });
+  }, [gridId, store]);
+  const actions = useGridActions(getCtx, onNotice, focusActiveCell);
   const contentRef = useRef<HTMLDivElement>(null);
   const [fillPreview, setFillPreview] = useState<CellRange | null>(null);
 
@@ -432,6 +439,27 @@ const GridInner = ({
     // Header buttons, resize handles and filter popovers have their own keys; only cells drive the grid.
     if (!(e.target as HTMLElement).closest('[role="gridcell"]')) return;
     const sel = store.getState().selection;
+    // Ctrl/Cmd + C / X / V: not every browser fires copy/paste for a focused non-editable cell (Firefox does
+    // not). A hidden text field takes focus for the keystroke, so the NATIVE event fires everywhere; the
+    // handlers then hand focus back to the cell.
+    const k = e.key.toLowerCase();
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.altKey &&
+      !e.shiftKey &&
+      (k === 'c' || k === 'x' || k === 'v')
+    ) {
+      const proxy = clipProxy.current;
+      if (proxy && store.getState().selection) {
+        proxy.value = k === 'v' ? '' : (actions.copyText() ?? '');
+        proxy.focus();
+        proxy.select();
+        window.setTimeout(() => {
+          if (document.activeElement === proxy) focusActiveCell(); // the browser did nothing (e.g. paste blocked)
+        }, 500);
+      }
+      return;
+    }
     const action = resolveKey(e);
     if (!action) return;
     if (!sel) {
@@ -475,6 +503,17 @@ const GridInner = ({
       default:
         onCommand?.(action, sel);
     }
+  };
+
+  // Tab (or a click on the grid's frame) lands DOM focus on the tabbable cell; make that the selection, so the
+  // next arrow key moves from it instead of merely selecting it.
+  const onGridFocus = (e: FocusEvent<HTMLDivElement>) => {
+    if (store.getState().selection || store.getState().editing) return;
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[role="gridcell"]');
+    if (!el) return;
+    const row = Number(el.dataset.row);
+    const col = Number(el.dataset.col);
+    if (Number.isInteger(row) && Number.isInteger(col)) setSel(single({ row, col }), false);
   };
 
   // ---- mouse -----------------------------------------------------------------
@@ -555,12 +594,12 @@ const GridInner = ({
           style={{ width: 'var(--w-total)', height: HEADER_HEIGHT + order.length * ROW_HEIGHT }}
           ref={contentRef}
           onKeyDown={onKeyDown}
+          onFocus={onGridFocus}
           onCopy={actions.onCopy}
           onCut={actions.onCut}
           onPaste={actions.onPaste}
           onMouseDown={onMouseDown}
           // Drag-selection is a pointer enhancement; keyboard users select with Shift+arrows.
-          // eslint-disable-next-line jsx-a11y/mouse-events-have-key-events
           onMouseOver={onMouseOver}
         >
           <GridHeader sort={sort} onSort={onSort} renderFilter={renderColumnFilter} />
@@ -605,6 +644,16 @@ const GridInner = ({
           )}
           {overlay}
         </div>
+        <textarea
+          ref={clipProxy}
+          data-clip-proxy
+          aria-hidden="true"
+          tabIndex={-1}
+          className="pointer-events-none fixed -left-[9999px] top-0 h-px w-px opacity-0"
+          onCopy={actions.onCopy}
+          onCut={actions.onCut}
+          onPaste={actions.onPaste}
+        />
         {order.length === 0 && (
           <p
             className="sticky left-0 p-6 text-sm text-muted-foreground"

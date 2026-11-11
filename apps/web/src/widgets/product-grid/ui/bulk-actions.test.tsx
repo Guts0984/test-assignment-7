@@ -71,6 +71,44 @@ describe('copy', () => {
   });
 });
 
+describe('browsers that do not fire clipboard events for a focused cell (Firefox): the hidden proxy field', () => {
+  const proxy = () => document.querySelector<HTMLElement>('[data-clip-proxy]')!;
+
+  it('Ctrl+C hands focus to the proxy, the native copy event fills the clipboard, and focus returns to the cell at once', async () => {
+    setup();
+    const user = userEvent.setup();
+    await user.click(cell(0, STOCK));
+    fireEvent.keyDown(cell(0, STOCK), { key: 'c', ctrlKey: true });
+    expect(document.activeElement).toBe(proxy());
+    expect((proxy() as HTMLTextAreaElement).value).toBe(String(products[0]!.stock));
+    const c = clip();
+    fireEvent.copy(proxy(), { clipboardData: c.data });
+    expect(c.written()).toBe(String(products[0]!.stock));
+    expect(document.activeElement).toBe(cell(0, STOCK)); // synchronously: the next keystroke goes to the grid
+  });
+
+  it('Ctrl+V: the paste lands through the proxy, is applied, and focus returns', async () => {
+    const { probe } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(0, STOCK));
+    fireEvent.keyDown(cell(0, STOCK), { key: 'v', metaKey: true });
+    expect(document.activeElement).toBe(proxy());
+    fireEvent.paste(proxy(), { clipboardData: clip('77\n88').data });
+    expect(probe.commits[0]!.edits.map((e) => e.value)).toEqual([77, 88]);
+    expect(document.activeElement).toBe(cell(0, STOCK));
+  });
+
+  it('the proxy never swallows typing in a real editor', async () => {
+    const { probe } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(0, NAME));
+    await user.keyboard('{F2}');
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'v', ctrlKey: true });
+    expect(document.activeElement).toBe(screen.getByRole('textbox'));
+    expect(probe.commits).toHaveLength(0);
+  });
+});
+
 describe('paste', () => {
   it('copy 10x3 then paste elsewhere: ONE commit, source "paste", typed values exact', async () => {
     const { grid, probe } = setup();
