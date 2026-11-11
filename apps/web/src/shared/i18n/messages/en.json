@@ -188,5 +188,78 @@
       "revert": "revert",
       "undo": "undo"
     }
+  },
+  "bulk": {
+    "title": "Bulk change",
+    "open": "Bulk change…",
+    "description": "Applies to the products currently shown by the filters. It runs in the background; you can keep working.",
+    "operation": "Operation",
+    "field": "Field",
+    "value": "New value",
+    "amount": "Amount",
+    "tag": "Tag",
+    "kind": {
+      "set": "Set a value",
+      "percent": "Change a number by a percentage",
+      "absolute": "Change a number by an amount",
+      "addTag": "Add a tag",
+      "removeTag": "Remove a tag"
+    },
+    "percentHint": "Use a negative number to decrease, e.g. -10 for −10%.",
+    "previewLoading": "Counting products…",
+    "preview": "{count, plural, one {# product matches} other {# products match}}; you can change {editable, plural, one {# of them} other {# of them}}. The rest will be skipped and listed in the report.",
+    "previewNone": "No products match the current filters.",
+    "previewError": "Could not count the products.",
+    "start": "Start",
+    "starting": "Starting…",
+    "startError": "Could not start the job.",
+    "tooMany": "Too many jobs are running. Wait for one to finish.",
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "cancelling": "Cancelling…",
+      "cancelled": "Cancelled",
+      "done": "Done",
+      "failed": "Failed",
+      "reverting": "Reverting…",
+      "reverted": "Reverted"
+    },
+    "progress": "{processed} of {total} products processed",
+    "applied": "{count, plural, one {# product changed} other {# products changed}}",
+    "skipped": "{count, plural, one {# product skipped} other {# products skipped}}",
+    "cancel": "Cancel",
+    "revert": "Revert",
+    "revertDone": "{count, plural, one {# product restored} other {# products restored}}",
+    "revertSkipped": "{count, plural, one {# cell was left alone because it changed after the job} other {# cells were left alone because they changed after the job}}",
+    "report": "Skipped products",
+    "revertReport": "Not reverted",
+    "reportTruncated": "Showing the first {shown} of {total}.",
+    "sku": "SKU",
+    "reason": "Reason",
+    "details": "Details",
+    "reasons": {
+      "forbidden": "No permission",
+      "invalid": "Invalid result",
+      "conflict": "Changed meanwhile",
+      "changed_since": "Changed after the job",
+      "not_found": "Not found",
+      "unchanged": "Nothing to change"
+    },
+    "close": "Close",
+    "error": "Could not load the job.",
+    "operationError": {
+      "required": "This value is required.",
+      "notNumber": "Enter a valid number.",
+      "tooManyDecimals": "At most 2 digits after the decimal mark.",
+      "tooLarge": "The number is too large.",
+      "percentTooLow": "A decrease of 100% or more would empty the values.",
+      "tagTooLong": "A tag is at most 50 characters.",
+      "invalid": "This value is not valid.",
+      "notInList": "Choose a value from the list.",
+      "notDate": "Enter a valid date.",
+      "notPositive": "The value must be greater than 0.",
+      "notInteger": "Enter a whole number."
+    },
+    "another": "New bulk change"
   }
 }

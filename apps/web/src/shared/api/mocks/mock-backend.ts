@@ -1,6 +1,12 @@
 import { http, HttpResponse } from 'msw';
 import {
   canEditCategory,
+  computeAdjust,
+  matchesFilter,
+  type BulkJob,
+  type BulkOperation,
+  type ProductFilter,
+  type SkipItem,
   fieldValueSchemas,
   validateProductState,
   type ChangeResult,
@@ -168,7 +174,244 @@ export const createMockBackend = (size = 2000) => {
   const err = (status: number, code: string, message: string, details?: unknown) =>
     HttpResponse.json({ error: { code, message, details } }, { status });
 
+  // ---- bulk jobs: progress advances by one chunk per poll, like the real worker -------------------
+  type JobItem = {
+    id: string;
+    state: 'pending' | 'applied' | 'skipped' | 'reverted' | 'revert_skipped';
+    reason?: SkipItem['reason'];
+    message?: string;
+    field?: EditableField;
+    version?: number;
+    before?: unknown;
+  };
+  type Job = {
+    id: string;
+    status: BulkJob['status'];
+    filter: ProductFilter;
+    operation: BulkOperation;
+    items: JobItem[];
+    revertedCount: number;
+    createdAt: string;
+    finishedAt: string | null;
+    authorLogin: string | null;
+    authorId: string | null;
+  };
+  const jobs = new Map<string, Job>();
+  let jobSeq = 0;
+  const CHUNK = 250;
+
+  const fieldOf = (op: BulkOperation): EditableField =>
+    op.type === 'addTag' || op.type === 'removeTag' ? 'tags' : op.field;
+  const skipOf = (j: Job, states: JobItem['state'][]): SkipItem[] =>
+    j.items
+      .filter((i) => states.includes(i.state))
+      .slice(0, 200)
+      .map((i) => ({
+        productId: i.id,
+        sku: find(i.id)?.sku ?? '?',
+        reason: i.reason ?? 'invalid',
+        message: i.message ?? '',
+      }));
+  const viewOf = (j: Job): BulkJob => ({
+    id: j.id,
+    status: j.status,
+    filter: j.filter,
+    operation: j.operation,
+    total: j.items.length,
+    processed: j.items.filter((i) => i.state !== 'pending').length,
+    applied: j.items.filter(
+      (i) => i.state === 'applied' || i.state === 'reverted' || i.state === 'revert_skipped',
+    ).length,
+    skipped: j.items.filter((i) => i.state === 'skipped').length,
+    revertedCount: j.revertedCount,
+    author: j.authorId && j.authorLogin ? { id: j.authorId, login: j.authorLogin } : null,
+    createdAt: j.createdAt,
+    finishedAt: j.finishedAt,
+    report: skipOf(j, ['skipped']),
+    revertReport: skipOf(j, ['revert_skipped']),
+  });
+
+  const applyItem = (j: Job, it: JobItem) => {
+    const p = find(it.id);
+    if (!p)
+      return Object.assign(it, {
+        state: 'skipped',
+        reason: 'not_found',
+        message: 'Product no longer exists',
+      });
+    if (!me || !canEditCategory(me, p.category))
+      return Object.assign(it, {
+        state: 'skipped',
+        reason: 'forbidden',
+        message: 'Product is in a category you cannot edit',
+      });
+    const op = j.operation;
+    const field = fieldOf(op);
+    let value: unknown;
+    if (op.type === 'set') value = op.value;
+    else if (op.type === 'adjust') {
+      const r = computeAdjust(op.field, p[op.field], op.mode, op.amount);
+      if (!r.ok)
+        return Object.assign(it, { state: 'skipped', reason: 'invalid', message: r.message });
+      value = r.value;
+    } else if (op.type === 'addTag') {
+      if (p.tags.includes(op.tag))
+        return Object.assign(it, {
+          state: 'skipped',
+          reason: 'unchanged',
+          message: `Already has tag "${op.tag}"`,
+        });
+      value = [...p.tags, op.tag];
+    } else {
+      if (!p.tags.includes(op.tag))
+        return Object.assign(it, {
+          state: 'skipped',
+          reason: 'unchanged',
+          message: `Does not have tag "${op.tag}"`,
+        });
+      value = p.tags.filter((t) => t !== op.tag);
+    }
+    if (JSON.stringify(value) === JSON.stringify(p[field]))
+      return Object.assign(it, {
+        state: 'skipped',
+        reason: 'unchanged',
+        message: 'Value already set',
+      });
+    const [res] = applyBatch([{ id: p.id, field, value, baseVersion: p.versions[field] }], 'bulk');
+    if (res!.status === 'ok')
+      return Object.assign(it, {
+        state: 'applied',
+        field,
+        version: res!.newVersion,
+        before: p[field],
+      });
+    const msg =
+      res!.status === 'invalid' ? res!.issues.map((x) => x.message).join('; ') : res!.status;
+    return Object.assign(it, { state: 'skipped', reason: 'invalid', message: msg });
+  };
+
+  const revertItem = (it: JobItem) => {
+    const p = find(it.id);
+    if (!p || !it.field)
+      return Object.assign(it, {
+        state: 'revert_skipped',
+        reason: 'not_found',
+        message: 'Product no longer exists',
+      });
+    if (p.versions[it.field] !== it.version)
+      return Object.assign(it, {
+        state: 'revert_skipped',
+        reason: 'changed_since',
+        message: `${it.field} was changed after the job`,
+      });
+    const [res] = applyBatch(
+      [{ id: p.id, field: it.field, value: it.before, baseVersion: p.versions[it.field] }],
+      'revert',
+    );
+    return res!.status === 'ok'
+      ? Object.assign(it, { state: 'reverted' })
+      : Object.assign(it, {
+          state: 'revert_skipped',
+          reason: 'invalid',
+          message: 'would break a rule',
+        });
+  };
+
+  const advance = (j: Job) => {
+    if (j.status === 'queued') j.status = 'running';
+    if (j.status === 'cancelling') {
+      j.status = 'cancelled';
+      j.finishedAt = new Date().toISOString();
+    } else if (j.status === 'running') {
+      const pending = j.items.filter((i) => i.state === 'pending').slice(0, CHUNK);
+      pending.forEach((i) => applyItem(j, i));
+      if (!j.items.some((i) => i.state === 'pending')) {
+        j.status = 'done';
+        j.finishedAt = new Date().toISOString();
+      }
+    } else if (j.status === 'reverting') {
+      const todo = j.items.filter((i) => i.state === 'applied').slice(0, CHUNK);
+      todo.forEach((i) => {
+        revertItem(i);
+        if (i.state === 'reverted') j.revertedCount++;
+      });
+      if (!j.items.some((i) => i.state === 'applied')) {
+        j.status = 'reverted';
+        j.finishedAt = new Date().toISOString();
+      }
+    }
+  };
+
+  const bulkHandlers = [
+    http.post('*/api/bulk-jobs/preview', async ({ request }) => {
+      if (!me) return unauthorized();
+      if (me.role === 'viewer') return err(403, 'forbidden', 'Your role cannot do this');
+      const { filter } = (await request.json()) as { filter: ProductFilter };
+      const match = products.filter((p) => matchesFilter(p, filter));
+      return HttpResponse.json({
+        count: match.length,
+        editable: match.filter((p) => canEditCategory(me!, p.category)).length,
+      });
+    }),
+    http.post('*/api/bulk-jobs', async ({ request }) => {
+      if (!me) return unauthorized();
+      if (me.role === 'viewer') return err(403, 'forbidden', 'Your role cannot do this');
+      const body = (await request.json()) as { filter: ProductFilter; operation: BulkOperation };
+      state.requests.push({ path: '/bulk-jobs', body, status: 201 });
+      const id = `00000000-0000-4000-8000-9${String(++jobSeq).padStart(11, '0')}`;
+      const items = products
+        .filter((p) => matchesFilter(p, body.filter))
+        .map((p): JobItem => ({ id: p.id, state: 'pending' }));
+      const job: Job = {
+        id,
+        status: 'queued',
+        filter: body.filter,
+        operation: body.operation,
+        items,
+        revertedCount: 0,
+        createdAt: new Date().toISOString(),
+        finishedAt: null,
+        authorLogin: me.login,
+        authorId: me.id,
+      };
+      jobs.set(id, job);
+      return HttpResponse.json(viewOf(job), { status: 201 });
+    }),
+    http.get('*/api/bulk-jobs/:id', ({ params }) => {
+      const j = jobs.get(String(params.id));
+      if (!me) return unauthorized();
+      if (!j) return err(404, 'not_found', 'Job not found');
+      advance(j);
+      return HttpResponse.json(viewOf(j));
+    }),
+    http.post('*/api/bulk-jobs/:id/cancel', ({ params }) => {
+      const j = jobs.get(String(params.id));
+      if (!me) return unauthorized();
+      if (!j) return err(404, 'not_found', 'Job not found');
+      if (j.status === 'queued') {
+        j.status = 'cancelled';
+        j.finishedAt = new Date().toISOString();
+      } else if (j.status === 'running') j.status = 'cancelling';
+      else if (!['cancelling', 'cancelled'].includes(j.status))
+        return err(409, 'conflict', `A job that is ${j.status} cannot be cancelled`);
+      return HttpResponse.json(viewOf(j));
+    }),
+    http.post('*/api/bulk-jobs/:id/revert', ({ params }) => {
+      const j = jobs.get(String(params.id));
+      if (!me) return unauthorized();
+      if (!j) return err(404, 'not_found', 'Job not found');
+      if (j.status !== 'reverting') {
+        if (!['done', 'cancelled', 'failed'].includes(j.status))
+          return err(409, 'conflict', `A job that is ${j.status} cannot be reverted`);
+        j.status = 'reverting';
+        j.finishedAt = null;
+      }
+      return HttpResponse.json(viewOf(j));
+    }),
+  ];
+
   const handlers = [
+    ...bulkHandlers,
     http.get('*/api/products', () => {
       state.requests.push({ path: '/products', body: null, status: 200 });
       return me ? HttpResponse.json({ products }) : unauthorized();
@@ -276,6 +519,7 @@ export const createMockBackend = (size = 2000) => {
       history = [];
       nextHistoryId = 1;
       idem.clear();
+      jobs.clear();
       state.script = [];
       state.requests = [];
       me = null;

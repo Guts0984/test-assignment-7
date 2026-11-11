@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from 'next-intl';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { matchesFilter } from '@catalog/shared';
 import {
@@ -13,10 +13,12 @@ import {
   makeCollator,
   nextSort,
   patchCachedRows,
+  productKeys,
   useProducts,
   EMPTY_QUERY,
   type TableQuery,
 } from '@/entities/product';
+import { BulkDialog } from '@/features/bulk-edit';
 import { HistoryPopover } from '@/features/cell-history';
 import { ConflictPopover } from '@/features/resolve-conflict';
 import type { AnchorRect } from '@/shared/ui/anchored-popover';
@@ -77,6 +79,7 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
   }, [me.data, router]);
 
   const qc = useQueryClient();
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [history, setHistory] = useState<{
     id: string;
     field: (typeof COLUMNS)[number]['field'];
@@ -123,6 +126,13 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
       rect: { left: r.left, top: r.top, width: r.width, height: r.height },
     };
   };
+  // A bulk job changed rows on the server: send pending edits first, then reload the rows in place.
+  const onBulkFinished = useCallback(async () => {
+    await edits.flush();
+    await qc.refetchQueries({ queryKey: productKeys.all });
+    refresh();
+  }, [edits, qc, refresh]);
+
   const openHistory = () => setHistory(activeCell());
 
   const onCommand = (cmd: GridCommand) => {
@@ -187,6 +197,11 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
           </span>
         )}
         <span className="flex-1" />
+        {me.data.role !== 'viewer' && (
+          <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
+            {t('bulk.open')}
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={openHistory} disabled={!activeKey}>
           {t('history.open')}
         </Button>
@@ -247,6 +262,13 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
           </div>
         )}
       </main>
+      <BulkDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        filter={query.filter}
+        locale={locale}
+        onFinished={onBulkFinished}
+      />
       {history && rows && (
         <HistoryPopover
           rect={history.rect}
