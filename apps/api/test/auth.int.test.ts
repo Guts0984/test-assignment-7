@@ -157,18 +157,23 @@ describe('hostile login input never causes 5xx and never logs in', () => {
     expect(strip(a)).toEqual(strip(b));
   });
   it('response time does not reveal whether a login exists', async () => {
-    const time = async (l: string) => {
-      const t: number[] = [];
-      for (let i = 0; i < 6; i++) {
+    // Interleaved samples (a slow stretch on a busy machine hits both logins alike) and the FASTEST of each:
+    // noise only ever adds time, so the minimum is the stable signal. Skipping the hash for an unknown login
+    // would make it tens of times faster, far outside this bound.
+    const known: number[] = [];
+    const unknown: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      for (const [l, into] of [
+        ['admin', known],
+        ['ghost-user', unknown],
+      ] as const) {
         const t0 = performance.now();
         await login(l, 'wrong-password', freshIp());
-        t.push(performance.now() - t0);
+        into.push(performance.now() - t0);
       }
-      return t.sort((x, y) => x - y)[3]!;
-    };
-    const known = await time('admin');
-    const unknown = await time('ghost-user');
-    expect(Math.max(known, unknown) / Math.min(known, unknown)).toBeLessThan(2.5);
+    }
+    const [k, u] = [Math.min(...known), Math.min(...unknown)];
+    expect(Math.max(k, u) / Math.min(k, u)).toBeLessThan(2);
   });
 });
 
