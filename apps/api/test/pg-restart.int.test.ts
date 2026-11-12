@@ -122,7 +122,14 @@ describe.skipIf(!hasDocker)('PostgreSQL restarted under a live API', () => {
       }
     })();
 
-    docker('restart', '-t', '0', name);
+    // Hard stop, then keep the database DOWN until the probes have actually seen the outage (a database that comes
+    // back within one probe round - which a fast CI runner manages - would make "503 during the outage" a coin flip).
+    docker('kill', name);
+    const sawOutage = () =>
+      seen.some((s) => s.path === '/ready' && s.status === 503) &&
+      seen.some((s) => (s.path === '/me' || s.path === '/products') && s.status === 503);
+    for (let i = 0; i < 200 && !sawOutage(); i++) await new Promise((r) => setTimeout(r, 100));
+    docker('start', name);
     await waitPg();
     // recovery without touching the API
     let ready = false;
