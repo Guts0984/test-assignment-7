@@ -140,3 +140,16 @@ describe('formatDecimal / formatInteger', () => {
     expect(formatDecimal('abc', 'en')).toBe('abc');
   });
 });
+
+describe('uk: a space is a thousands separator only between groups of three', () => {
+  it.each(['12 34', '1 2345', '1234 567', '12  345', '1 23', '12 3456,5'])('rejects %j', (t) =>
+    expect(parseDecimal(t, 'uk').ok).toBe(false),
+  );
+  it.each([
+    ['1 234', '1234'],
+    ['12\u00a0345,5', '12345.5'],
+    ['1\u202f234\u202f567', '1234567'],
+    ['999', '999'],
+  ])('accepts %j', (t, v) => expect(parseDecimal(t, 'uk')).toEqual({ ok: true, value: v }));
+  it('integers too: "12 34" is not 1234', () => expect(parseInteger('12 34', 'uk').ok).toBe(false));
+});

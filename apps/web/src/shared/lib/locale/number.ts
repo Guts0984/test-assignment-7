@@ -50,7 +50,10 @@ export const parseDecimal = (
     const dots = (body.match(/\./g) ?? []).length;
     if (commas + dots > 1 || (commas > 0 && dots > 0)) return { ok: false, reason: 'invalid' };
     [intPart = '', fracPart = ''] = body.split(commas ? ',' : '.');
-    // spaces are only valid as thousands separators between digit groups
+    // spaces are only valid as thousands separators: "12 345" and "1 234 567" - never "12 34" or "1 2345"
+    const rawInt = rest.split(/[,.]/)[0]!;
+    if (/[ \u00a0\u202f]/.test(rawInt) && !/^\d{1,3}([ \u00a0\u202f]\d{3})+$/.test(rawInt))
+      return { ok: false, reason: 'invalid' };
     if (
       /\s/.test(rest.replace(GROUP_SPACES, '')) ||
       /(^|[,.])[ \u00a0\u202f]|[ \u00a0\u202f]($|[,.])/.test(rest)

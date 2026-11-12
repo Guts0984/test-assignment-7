@@ -356,6 +356,82 @@ describe('per-change results', () => {
   });
 });
 
+describe('what a refused edit falls back to is what the SERVER has', () => {
+  const refuse: ChangeResult = {
+    status: 'invalid',
+    issues: [{ code: 'invalidValue', message: 'no' }],
+  };
+
+  it('coalesced 100 -> 200 -> 300, 300 refused: falls back to 100 (200 was never sent)', async () => {
+    const { engine, log } = setup(async (c) => c.changes.map(() => refuse));
+    engine.enqueue([edit(1, 'stock', 200, { previous: 100 })]);
+    engine.enqueue([edit(1, 'stock', 300, { previous: 200 })]);
+    await vi.runAllTimersAsync();
+    await engine.flush();
+    expect(log.rejected).toHaveLength(1);
+    expect(log.rejected[0]![0]).toMatchObject({ value: 300, previous: 100 });
+  });
+
+  it('in flight 200 refused while 300 waits behind it: 300 inherits 100, so a later refusal does not show 200', async () => {
+    let release!: (r: ChangeResult[]) => void;
+    const { engine, log, calls } = setup((c) =>
+      calls.length === 1
+        ? new Promise((res) => (release = res))
+        : Promise.resolve(c.changes.map(() => refuse)),
+    );
+    engine.enqueue([edit(1, 'stock', 200, { previous: 100 })]);
+    await vi.advanceTimersByTimeAsync(50);
+    engine.enqueue([edit(1, 'stock', 300, { previous: 200 })]); // typed over the value that is still in flight
+    release([refuse]);
+    await vi.runAllTimersAsync();
+    await engine.flush();
+    expect(log.rejected.map(([e]) => [e.value, e.previous])).toEqual([
+      [200, 100],
+      [300, 100], // NOT 200: the server never had it
+    ]);
+  });
+
+  it('in flight 200 ACCEPTED while 300 waits: a later refusal of 300 correctly falls back to 200', async () => {
+    let release!: (r: ChangeResult[]) => void;
+    const { engine, log, calls } = setup((c) =>
+      calls.length === 1
+        ? new Promise((res) => (release = res))
+        : Promise.resolve(c.changes.map(() => refuse)),
+    );
+    engine.enqueue([edit(1, 'stock', 200, { previous: 100 })]);
+    await vi.advanceTimersByTimeAsync(50);
+    engine.enqueue([edit(1, 'stock', 300, { previous: 200 })]);
+    release([ok(1, 200)]);
+    await vi.runAllTimersAsync();
+    await engine.flush();
+    expect(log.rejected.map(([e]) => [e.value, e.previous])).toEqual([[300, 200]]);
+  });
+});
+
+describe('results are reported per response, not per cell', () => {
+  it('onResultsHandled fires ONCE for a 500-cell response (the screen is updated in one pass)', async () => {
+    let handled = 0;
+    const { engine, log } = setup(async (c) => c.changes.map((_, i) => ok(i + 1)), {
+      onResultsHandled: () => handled++,
+    });
+    engine.enqueue(Array.from({ length: 500 }, (_, i) => edit(i + 1, 'stock', i)));
+    await vi.runAllTimersAsync();
+    await engine.flush();
+    expect(log.applied).toHaveLength(500);
+    expect(handled).toBe(1);
+  });
+  it('also after a whole-request rejection, so reverted cells reach the screen', async () => {
+    let handled = 0;
+    const { engine } = setup(() => Promise.reject({ retryable: false, message: 'no' }), {
+      onResultsHandled: () => handled++,
+    });
+    engine.enqueue([edit(1, 'stock', 1)]);
+    await vi.runAllTimersAsync();
+    await engine.flush();
+    expect(handled).toBe(1);
+  });
+});
+
 describe('status and saving markers', () => {
   it('marks cells as saving until their result arrives, and counts unsaved', async () => {
     let release!: (r: ChangeResult[]) => void;

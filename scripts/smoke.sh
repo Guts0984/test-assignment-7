@@ -29,8 +29,10 @@ echo "$H" | grep -Eqi '^server: nginx/[0-9]' && fail "nginx version leaked" || p
 [ "$(code -X DELETE "$BASE/api/products")" = 405 ] && pass "DELETE refused at the edge" || fail "DELETE"
 
 # 4. oversize body is stopped at the edge
-head -c 2000000 /dev/zero | tr '\0' 'a' > /tmp/big.json
-[ "$(code -X POST -H 'content-type: application/json' --data-binary @/tmp/big.json "$BASE/api/auth/login")" = 413 ] && pass "2 MB body -> 413" || fail "body limit"
+head -c 20000 /dev/zero | tr '\0' 'a' > /tmp/big.json
+[ "$(code -X POST -H 'content-type: application/json' --data-binary @/tmp/big.json "$BASE/api/auth/login")" = 413 ] && pass "20 KB login body -> 413" || fail "login body limit"
+head -c 5000000 /dev/zero | tr '\0' 'a' > /tmp/big.json
+[ "$(code -X PATCH -H 'content-type: application/json' --data-binary @/tmp/big.json "$BASE/api/products/batch")" = 413 ] && pass "5 MB body -> 413" || fail "body limit"
 
 # 5. normal flow works through the proxy
 JAR="$(mktemp)"

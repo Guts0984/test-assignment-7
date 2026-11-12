@@ -76,6 +76,7 @@
   "grid": {
     "label": "Products table",
     "empty": "No products match the filters.",
+    "errorsMany": "{count} cells have errors.",
     "readOnly": "read only",
     "saving": "saving",
     "conflict": "conflict",
@@ -114,6 +115,8 @@
     "skuDuplicateInBatch": "This SKU appears twice in the same change.",
     "skuTaken": "This SKU already exists.",
     "categoryForbidden": "You cannot move a product into a category you do not edit.",
+    "internalError": "The change could not be saved. Try again.",
+    "conflictPending": "Resolve the conflict first: someone else changed this cell.",
     "notFound": "This product no longer exists."
   },
   "sync": {
@@ -121,7 +124,8 @@
     "saving": "Saving… {count, plural, one {# change} other {# changes}}",
     "unsaved": "{count, plural, one {# unsaved change} other {# unsaved changes}}",
     "retrying": "Connection problem — retrying. {count, plural, one {# unsaved change} other {# unsaved changes}}",
-    "error": "Could not save: {message}",
+    "error": "Could not save the changes. Reload the page and try again.",
+    "needsAttention": "{count, plural, one {# change needs attention} other {# changes need attention}}",
     "sessionExpired": "Your session has expired. Sign in again; unsaved edits are kept on this page."
   },
   "toolbar": {

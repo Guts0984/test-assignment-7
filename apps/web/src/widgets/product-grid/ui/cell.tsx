@@ -3,10 +3,11 @@
 import { useTranslations } from 'next-intl';
 import { memo } from 'react';
 import type { EditableField } from '@catalog/shared';
-import { COLUMN_BY_FIELD, displayText } from '@/entities/product';
+import { COLUMN_BY_FIELD, displayText, editText } from '@/entities/product';
 import type { AppLocale } from '@/shared/lib/locale';
 import { cn } from '@/shared/lib/cn';
 import { CellEditor } from '@/features/edit-cell';
+import { cellErrorText } from '../lib/error-text';
 import { cellVisual, V } from '../model/cell-visual';
 import { cellKey } from '../model/grid-store';
 import { useGrid, useGridStoreApi } from '../model/grid-context';
@@ -108,10 +109,14 @@ export const Cell = memo(function Cell({
       )}
       style={{ width: `var(--w-${colIndex})`, minWidth: `var(--w-${colIndex})` }}
       onDoubleClick={() => {
-        if (!readOnly)
-          store
-            .getState()
-            .startEditing({ pos: { row: rowIndex, col: colIndex }, draft: '', origin: 'open' });
+        // Already editing: the double click is a word selection inside the editor, not a new edit.
+        if (readOnly || store.getState().editing) return;
+        // Same as F2: the editor opens on the CURRENT value (an empty draft would save an empty value).
+        store.getState().startEditing({
+          pos: { row: rowIndex, col: colIndex },
+          draft: editText(field, value, locale),
+          origin: 'open',
+        });
       }}
     >
       {editing ? (
@@ -156,17 +161,7 @@ export const Cell = memo(function Cell({
           role="tooltip"
           className="absolute left-0 top-full z-20 mt-0.5 max-w-64 whitespace-normal rounded border border-danger bg-popover px-2 py-1 text-xs text-danger shadow"
         >
-          {t(`errors.${error.code}`, {
-            example:
-              field === 'arrivalDate'
-                ? locale === 'uk'
-                  ? '31.12.2025'
-                  : '12/31/2025'
-                : locale === 'uk'
-                  ? '1 234,50'
-                  : '1,234.50',
-            ...error.params,
-          })}
+          {cellErrorText(t, error, field, locale)}
         </div>
       )}
     </div>

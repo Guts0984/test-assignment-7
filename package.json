@@ -12,7 +12,7 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "dev": "pnpm -r --parallel --filter @catalog/api --filter @catalog/web dev",
-    "db:up": "docker compose up -d --wait postgres",
+    "db:up": "docker compose -f compose.yaml -f compose.dev.yaml up -d --wait postgres",
     "db:bootstrap": "pnpm --filter @catalog/api bootstrap"
   },
   "devDependencies": {

@@ -14,6 +14,7 @@ import { bulkJobItems, bulkJobs, products, users } from '../db/schema';
 import { CONFIG, DB } from '../common/tokens';
 import { forbidden, httpError, notFound } from '../common/http-error';
 import type { AuthUser } from '../auth/public.decorator';
+import { IdempotencyService, hashBody } from '../products/idempotency.service';
 import { filterWhere } from './filter';
 import { validateOperation } from './ops';
 
@@ -25,6 +26,7 @@ export class BulkService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(CONFIG) private readonly config: Config,
+    @Inject(IdempotencyService) private readonly idem: IdempotencyService,
   ) {}
 
   async preview(me: AuthUser, filter: ProductFilter): Promise<{ count: number; editable: number }> {
@@ -38,6 +40,22 @@ export class BulkService {
       .from(products)
       .where(where ? and(where, mine) : mine);
     return { count: n, editable: m };
+  }
+
+  /**
+   * With an Idempotency-Key a repeated request (retry, double click) returns the SAME job instead of starting a
+   * second one - otherwise "+10%" twice would be +21%. The key lives in its own namespace, apart from the batch keys.
+   */
+  async createOnce(
+    me: AuthUser,
+    body: CreateBulkJob,
+    key: string | undefined,
+  ): Promise<{ job: BulkJob; replayed: boolean }> {
+    if (!key) return { job: await this.create(me, body), replayed: false };
+    const out = await this.idem.run(me.id, `bulk:${key}`, hashBody(body), () =>
+      this.create(me, body),
+    );
+    return { job: out.body, replayed: out.replayed };
   }
 
   async create(me: AuthUser, body: CreateBulkJob): Promise<BulkJob> {

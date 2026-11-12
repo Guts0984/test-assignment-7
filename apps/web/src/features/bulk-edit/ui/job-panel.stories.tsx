@@ -39,7 +39,7 @@ const serve = (job: object) => ({
 const meta = {
   title: 'Features/Bulk job',
   component: JobPanel,
-  args: { jobId: ID, onFinished: fn(), onNew: fn() },
+  args: { jobId: ID, onNew: fn() },
 } satisfies Meta<typeof JobPanel>;
 export default meta;
 type S = StoryObj<typeof meta>;
@@ -63,14 +63,13 @@ export const Running: S = {
 };
 export const DoneWithReport: S = {
   parameters: serve({ ...base, status: 'done' }),
-  play: async ({ canvasElement, args }) => {
+  play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(await c.findByText('Done')).toBeInTheDocument();
     const report = c.getByRole('region', { name: 'Skipped products' });
     await expect(within(report).getByText('SKU-00010')).toBeInTheDocument();
     await expect(within(report).getByText('No permission')).toBeInTheDocument();
     await expect(c.getByRole('button', { name: 'Revert' })).toBeInTheDocument();
-    await expect(args.onFinished).toHaveBeenCalled();
   },
 };
 export const Cancelled: S = {

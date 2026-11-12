@@ -7,8 +7,11 @@ import { DB } from '../common/tokens';
 import { httpError } from '../common/http-error';
 
 const WAIT_MS = 30_000;
+/** A key whose owner has not shown a sign of life for this long is taken over. */
 const STALE_MS = 60_000;
 const POLL_MS = 40;
+
+export type IdempotencyTuning = { staleMs?: number; heartbeatMs?: number };
 
 /** JSON with sorted keys, so semantically equal bodies hash equal regardless of key order. */
 export const canonicalJson = (v: unknown): string => {
@@ -30,7 +33,16 @@ export type Idempotent<T> = { body: T; replayed: boolean };
 
 @Injectable()
 export class IdempotencyService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  private readonly staleMs: number;
+  private readonly heartbeatMs: number;
+
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    tuning: IdempotencyTuning = {},
+  ) {
+    this.staleMs = tuning.staleMs ?? STALE_MS;
+    this.heartbeatMs = tuning.heartbeatMs ?? Math.floor(this.staleMs / 4);
+  }
 
   /**
    * Runs `fn` at most once per (user, key). Concurrent duplicates wait for the first and get its
@@ -66,7 +78,7 @@ export class IdempotencyService {
       }
       if (row.state === 'done') return { body: row.response as T, replayed: true };
 
-      if (Date.now() - row.createdAt.getTime() > STALE_MS) {
+      if (Date.now() - row.createdAt.getTime() > this.staleMs) {
         // Owner presumably crashed mid-flight: take over atomically (only one taker wins).
         const took = await this.db
           .update(idempotencyKeys)
@@ -76,7 +88,7 @@ export class IdempotencyService {
               eq(idempotencyKeys.userId, userId),
               eq(idempotencyKeys.key, key),
               eq(idempotencyKeys.state, 'in_progress'),
-              lt(idempotencyKeys.createdAt, new Date(Date.now() - STALE_MS)),
+              lt(idempotencyKeys.createdAt, new Date(Date.now() - this.staleMs)),
             ),
           )
           .returning({ key: idempotencyKeys.key });
@@ -99,6 +111,21 @@ export class IdempotencyService {
     fn: () => Promise<T>,
   ): Promise<Idempotent<T>> {
     let body: T;
+    // The owner proves it is alive while it works: a slow but healthy request must not be mistaken for a crashed
+    // one (a retry would take the key over and run the batch a second time).
+    const beat = setInterval(() => {
+      void this.db
+        .update(idempotencyKeys)
+        .set({ createdAt: new Date() })
+        .where(
+          and(
+            eq(idempotencyKeys.userId, userId),
+            eq(idempotencyKeys.key, key),
+            eq(idempotencyKeys.state, 'in_progress'),
+          ),
+        )
+        .catch(() => undefined);
+    }, this.heartbeatMs);
     try {
       body = await fn();
     } catch (e) {
@@ -107,6 +134,8 @@ export class IdempotencyService {
         .where(and(eq(idempotencyKeys.userId, userId), eq(idempotencyKeys.key, key)))
         .catch(() => undefined);
       throw e;
+    } finally {
+      clearInterval(beat);
     }
     await this.db
       .update(idempotencyKeys)

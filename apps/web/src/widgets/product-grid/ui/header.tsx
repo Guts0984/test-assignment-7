@@ -7,6 +7,7 @@ import type { EditableField } from '@catalog/shared';
 import { COLUMNS, type TableQuery } from '@/entities/product';
 import { cn } from '@/shared/lib/cn';
 import { useGrid } from '../model/grid-context';
+import { MAX_COL_WIDTH } from '../model/grid-store';
 
 export const HEADER_HEIGHT = 40;
 
@@ -87,15 +88,14 @@ export const GridHeader = ({ sort, onSort, renderFilter }: Props) => {
               aria-label={t('grid.resize', { column: label })}
               aria-valuenow={widths[c.field]}
               aria-valuemin={c.minWidth}
-              aria-valuemax={600}
+              aria-valuemax={MAX_COL_WIDTH}
               tabIndex={0}
               className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-ring focus-visible:bg-ring"
               onPointerDown={(e) => startResize(e, c.field, c.minWidth)}
               onKeyDown={(e) => {
                 if (e.key === 'ArrowLeft')
                   setWidth(c.field, Math.max(c.minWidth, (widths[c.field] ?? c.width) - 10));
-                if (e.key === 'ArrowRight')
-                  setWidth(c.field, Math.min(600, (widths[c.field] ?? c.width) + 10));
+                if (e.key === 'ArrowRight') setWidth(c.field, (widths[c.field] ?? c.width) + 10);
               }}
             />
             {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}

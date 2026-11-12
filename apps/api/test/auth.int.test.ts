@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { apiErrorSchema, meSchema } from '@catalog/shared';
 import { startServer, type TestServer } from './helpers/server';
-import { call, cookieOf } from './helpers/http';
+import { call, cookieOf, realSourceAddresses } from './helpers/http';
 import { hashPassword } from '../src/common/password';
 import { RateLimitService } from '../src/auth/rate-limit.service';
 import { createDb } from '../src/db/client';
@@ -232,31 +232,37 @@ describe('brute force and rate-limit abuse (one real server, several real source
     expect((await good('viewer')).status).toBe(200);
   });
 
-  it('spoofed X-Forwarded-For / Forwarded / X-Real-IP do NOT create fresh identities (trust proxy is off)', async () => {
-    const attacker = freshIp();
-    const codes: number[] = [];
-    for (let i = 0; i < 10; i++) {
-      codes.push(
-        (
-          await login('admin', `guess-${i}`, attacker, {
-            'x-forwarded-for': `10.9.${i}.${i}`,
-            forwarded: `for=10.8.${i}.1`,
-            'x-real-ip': `10.7.${i}.1`,
-          })
-        ).status,
-      );
-    }
-    expect(codes.filter((c) => c === 401)).toHaveLength(5);
-    expect(codes.filter((c) => c === 429)).toHaveLength(5);
-  });
+  it.skipIf(!realSourceAddresses)(
+    'spoofed X-Forwarded-For / Forwarded / X-Real-IP do NOT create fresh identities (trust proxy is off)',
+    async () => {
+      const attacker = freshIp();
+      const codes: number[] = [];
+      for (let i = 0; i < 10; i++) {
+        codes.push(
+          (
+            await login('admin', `guess-${i}`, attacker, {
+              'x-forwarded-for': `10.9.${i}.${i}`,
+              forwarded: `for=10.8.${i}.1`,
+              'x-real-ip': `10.7.${i}.1`,
+            })
+          ).status,
+        );
+      }
+      expect(codes.filter((c) => c === 401)).toHaveLength(5);
+      expect(codes.filter((c) => c === 429)).toHaveLength(5);
+    },
+  );
 
-  it('a spoofed header cannot be used to frame an honest address either', async () => {
-    const attacker = freshIp();
-    const victimIp = freshIp();
-    for (let i = 0; i < 40; i++)
-      await login('admin', `g${i}`, attacker, { 'x-forwarded-for': victimIp });
-    expect((await good('admin', victimIp)).status).toBe(200);
-  });
+  it.skipIf(!realSourceAddresses)(
+    'a spoofed header cannot be used to frame an honest address either',
+    async () => {
+      const attacker = freshIp();
+      const victimIp = freshIp();
+      for (let i = 0; i < 40; i++)
+        await login('admin', `g${i}`, attacker, { 'x-forwarded-for': victimIp });
+      expect((await good('admin', victimIp)).status).toBe(200);
+    },
+  );
 
   it('a parallel burst of 300 guesses admits exactly 5 attempts (no check-then-act race)', async () => {
     const attacker = freshIp();

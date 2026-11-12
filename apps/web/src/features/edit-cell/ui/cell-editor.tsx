@@ -56,7 +56,7 @@ export const CellEditor = ({
       else el.select();
     }
     // Only on mount: later draft changes must not move the caret.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only on purpose: origin never changes while the editor is open
   }, []);
 
   const finish = (fn: () => boolean | void) => {

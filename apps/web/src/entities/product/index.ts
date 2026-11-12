@@ -29,5 +29,11 @@ export {
 } from './api/products-api';
 export { patchRows, type RowPatch } from './model/cache';
 export { getCachedRows, patchCachedRows, useProducts } from './model/use-products';
-export { cellKey, type CellEdit, type ConflictInfo, type EditSource } from './model/types';
+export {
+  cellKey,
+  type CellEdit,
+  type ConflictInfo,
+  type EditSource,
+  type CommitOptions,
+} from './model/types';
 export { planCellValues, type CellInput, type CellPlan, type CellTarget } from './lib/plan-cells';

@@ -4,6 +4,8 @@ import type { CellPos, Selection } from '@/shared/lib/grid';
 import { COLUMNS } from '@/entities/product';
 import { cellKey, type CellError, type ConflictInfo } from '@/entities/product';
 
+export const MAX_COL_WIDTH = 600;
+
 export { cellKey };
 
 export type EditingState = {
@@ -73,6 +75,8 @@ export const createGridStore = (initial: Partial<GridState> = {}): GridStore =>
     setErrors: (patch) => set((s) => ({ errors: applyPatch(s.errors, patch) })),
     setSaving: (patch) => set((s) => ({ saving: applyPatch(s.saving, patch) })),
     setConflicts: (patch) => set((s) => ({ conflicts: applyPatch(s.conflicts, patch) })),
-    setColWidth: (field, width) => set((s) => ({ colWidths: { ...s.colWidths, [field]: width } })),
+    // the same ceiling for the mouse and the keyboard (a drag past it would otherwise make a column wider than any screen)
+    setColWidth: (field, width) =>
+      set((s) => ({ colWidths: { ...s.colWidths, [field]: Math.min(MAX_COL_WIDTH, width) } })),
     setDragSelecting: (isDragSelecting) => set({ isDragSelecting }),
   }));

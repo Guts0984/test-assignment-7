@@ -613,6 +613,24 @@ describe('malformed and hostile batches are always 4xx (never 5xx) and never par
   }, 40_000);
 });
 
+describe('the largest VALID request is accepted (body limit)', () => {
+  it('1000 changes of 20 tags x 50 Cyrillic characters (> 2 MB of JSON) is a 200, not a 413', async () => {
+    const ps = (await listProducts(s, admin)).slice(1000, 2000);
+    const tag = (i: number, k: number) =>
+      `${String(i).padStart(4, '0')}${String(k).padStart(2, '0')}`.padEnd(50, 'ж');
+    const body = ps.map((p, i) => ({
+      id: p.id,
+      field: 'tags' as const,
+      value: Array.from({ length: 20 }, (_, k) => tag(i, k)),
+      baseVersion: p.versions.tags,
+    }));
+    expect(Buffer.byteLength(JSON.stringify({ changes: body }))).toBeGreaterThan(2_000_000);
+    const r = await patchBatch(s, admin, body, { source: 'paste' });
+    expect(r.status).toBe(200);
+    expect(results(r).filter((x) => x.status === 'ok')).toHaveLength(1000);
+  }, 60_000);
+});
+
 describe('idempotency', () => {
   const key = () => `k-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 
@@ -820,9 +838,14 @@ describe('history', () => {
       const r = await patchBatch(s, admin, [
         { id: p.id, field: 'name', value: 'TRIGGER-BOOM', baseVersion: 0 },
       ]);
-      expect(r.status).toBeGreaterThanOrEqual(500); // an internal fault is allowed to be a 5xx...
+      // an internal fault on one product is reported for THAT product (the batch is not failed as a whole)...
+      expect(r.status).toBe(200);
+      expect(results(r)[0]).toMatchObject({
+        status: 'invalid',
+        issues: [{ code: 'internal_error' }],
+      });
       const row = await db(p.id);
-      expect(row.name).toBe(p.name); // ...but it must not leave a half-applied change behind
+      expect(row.name).toBe(p.name); // ...and it must not leave a half-applied change behind
       expect(row.versions.name ?? 0).toBe(0);
       expect(await changes(p.id)).toHaveLength(0);
     } finally {
@@ -939,6 +962,72 @@ describe('restore from history', () => {
     const r = await call(s.baseUrl, 'POST', '/history/1/restore', {
       cookie: admin.cookie,
       body: { baseVersion: 'x' },
+    });
+    expect(r.status).toBe(400);
+  });
+});
+
+describe('one failing product does not fail the whole batch', () => {
+  it('a database error on one product: 200, that product reported, every other product saved, key replayable', async () => {
+    const ps = [take(), take(), take(), take()];
+    // a rule only the database knows about, so the value passes request validation and fails in the transaction
+    await pool.query(`alter table products add constraint test_boom check (name <> 'BOOM')`);
+    try {
+      const key = `boom-${Date.now()}`;
+      const changesIn = ps.map((p, i) => ({
+        id: p.id,
+        field: 'name' as const,
+        value: i === 1 ? 'BOOM' : `ok-${i}-${p.id.slice(0, 4)}`,
+        baseVersion: 0,
+      }));
+      const r = await patchBatch(s, admin, changesIn, { key });
+      expect(r.status).toBe(200); // used to be a 400 for the whole request
+      const rs = results(r);
+      expect(rs.map((x) => x.status)).toEqual(['ok', 'invalid', 'ok', 'ok']);
+      expect((await db(ps[1]!.id)).name).toBe(ps[1]!.name); // rolled back
+      for (const i of [0, 2, 3]) expect((await db(ps[i]!.id)).name).toBe(changesIn[i]!.value);
+      // the key stays bound to the response: a retry returns the same result and applies nothing twice
+      const again = await patchBatch(s, admin, changesIn, { key });
+      expect(results(again)).toEqual(rs);
+      expect((await changes(ps[0]!.id)).length).toBe(1);
+    } finally {
+      await pool.query(`alter table products drop constraint test_boom`);
+    }
+  });
+
+  it('a SKU claimed by a product whose own change FAILED is not lost for the next product', async () => {
+    const [a, b] = [take(), take()];
+    // a's claim fails (stale baseVersion -> conflict), so b must be able to take the SKU
+    await one(s, admin, { id: a.id, field: 'name', value: 'bumped', baseVersion: 0 });
+    await one(s, admin, { id: a.id, field: 'sku', value: 'FREED-SKU-1', baseVersion: 0 }); // moves a.sku version to 1
+    await one(s, admin, { id: a.id, field: 'sku', value: a.sku, baseVersion: 1 }); // back; version 2
+    const rs = results(
+      await patchBatch(s, admin, [
+        { id: a.id, field: 'sku', value: 'FREED-SKU-2', baseVersion: 0 }, // stale -> conflict
+        { id: b.id, field: 'sku', value: 'FREED-SKU-2', baseVersion: 0 },
+      ]),
+    );
+    expect(rs.map((r) => r.status)).toEqual(['conflict', 'ok']);
+    expect((await db(b.id)).sku).toBe('FREED-SKU-2');
+  });
+});
+
+describe('NUL character in text', () => {
+  it('name and tags with U+0000 are refused as invalid values (not a database error), nothing changes', async () => {
+    const p = take();
+    const rs = results(
+      await patchBatch(s, admin, [
+        { id: p.id, field: 'name', value: 'a\u0000b', baseVersion: 0 },
+        { id: p.id, field: 'tags', value: ['ok', 'x\u0000'], baseVersion: 0 },
+      ]),
+    );
+    expect(rs.map((r) => r.status)).toEqual(['invalid', 'invalid']);
+    expect((await db(p.id)).name).toBe(p.name);
+  });
+  it('a bulk job whose filter text contains NUL is a 400', async () => {
+    const r = await call(s.baseUrl, 'POST', '/bulk-jobs/preview', {
+      cookie: admin.cookie,
+      body: { filter: { name: 'a\u0000' } },
     });
     expect(r.status).toBe(400);
   });

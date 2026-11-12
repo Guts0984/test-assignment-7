@@ -37,6 +37,8 @@ export type SyncDeps = {
   onApplied: (e: PendingEdit, newVersion: number, value: unknown) => void;
   onConflict: (e: PendingEdit, r: Extract<ChangeResult, { status: 'conflict' }>) => void;
   onRejected: (e: PendingEdit, r: Exclude<ChangeResult, { status: 'ok' | 'conflict' }>) => void;
+  /** After ALL results of one response were reported: lets the caller apply them to the screen in ONE pass. */
+  onResultsHandled?: () => void;
   onStatus: (s: SyncStatus) => void;
   onSaving: (keys: string[], saving: boolean) => void;
   newKey: () => string;
@@ -124,11 +126,21 @@ export const createSyncEngine = (deps: SyncDeps): SyncEngine => {
     return { edits, source: first.source };
   };
 
+  /**
+   * `e` was refused while a NEWER edit of the same cell is already waiting: that newer edit's fallback must be
+   * what the server really has (`e.previous`), not the refused value it was typed over.
+   */
+  const reject = (e: PendingEdit, r: Exclude<ChangeResult, { status: 'ok' | 'conflict' }>) => {
+    const waiting = queued.get(keyOf(e));
+    if (waiting) queued.set(keyOf(e), { ...waiting, previous: e.previous });
+    deps.onRejected(e, r);
+  };
+
   const handleResults = (b: { edits: PendingEdit[] }, results: ChangeResult[]) => {
     deps.onSaving(b.edits.map(keyOf), false);
     b.edits.forEach((e, i) => {
       const r = results[i];
-      if (!r) return deps.onRejected(e, { status: 'rolled_back' });
+      if (!r) return reject(e, { status: 'rolled_back' });
       switch (r.status) {
         case 'ok':
           return deps.onApplied(e, r.newVersion, r.value);
@@ -141,11 +153,12 @@ export const createSyncEngine = (deps: SyncDeps): SyncEngine => {
             deps.onSaving([keyOf(e)], true);
             return;
           }
-          return deps.onRejected(e, r);
+          return reject(e, r);
         default:
-          return deps.onRejected(e, r);
+          return reject(e, r);
       }
     });
+    deps.onResultsHandled?.();
   };
 
   const pump = async (): Promise<void> => {
@@ -194,7 +207,8 @@ export const createSyncEngine = (deps: SyncDeps): SyncEngine => {
             error = e.message ?? 'Request rejected';
             inflight = null;
             deps.onSaving(b.edits.map(keyOf), false);
-            for (const ed of b.edits) deps.onRejected(ed, { status: 'rolled_back' });
+            for (const ed of b.edits) reject(ed, { status: 'rolled_back' });
+            deps.onResultsHandled?.();
             break;
           }
           retrying = true;
@@ -238,7 +252,13 @@ export const createSyncEngine = (deps: SyncDeps): SyncEngine => {
     enqueue: (edits) => {
       if (disposed || edits.length === 0) return;
       stopped = false;
-      for (const e of edits) queued.set(keyOf(e), e); // coalesce: last write wins
+      for (const e of edits) {
+        // Coalesce: last write wins - but the value to fall back to on a refusal is what the SERVER has, i.e. the
+        // `previous` of the FIRST waiting edit (100 -> 200 -> 300: if 300 is refused the cell goes back to 100,
+        // not to the 200 that was never sent).
+        const waiting = queued.get(keyOf(e));
+        queued.set(keyOf(e), waiting ? { ...e, previous: waiting.previous } : e);
+      }
       deps.onSaving(edits.map(keyOf), true);
       emit();
       schedule();

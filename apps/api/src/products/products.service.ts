@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, desc, eq } from 'drizzle-orm';
 import {
   EDITABLE_FIELDS,
@@ -36,6 +36,8 @@ const mapPool = async <T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>
 
 @Injectable()
 export class ProductsService {
+  private readonly log = new Logger(ProductsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(IdempotencyService) private readonly idem: IdempotencyService,
@@ -84,38 +86,81 @@ export class ProductsService {
       groups.set(c.id, g);
     });
 
-    // SKU uniqueness inside the batch: the first product (in request order) to claim a SKU keeps it.
+    // SKU uniqueness inside the batch: the first product (in request order) to claim a SKU keeps it,
+    // provided its own change really goes through (checked again after the first pass).
     const claimed = new Map<string, string>();
-    const dupSkusFor = new Map<string, Set<string>>();
+    const dupSkusFor = new Map<string, Map<string, string>>(); // product -> sku -> owner product
     for (const [id, g] of groups) {
       for (const { c } of g) {
         if (c.field !== 'sku' || typeof c.value !== 'string') continue;
         const sku = c.value.trim();
         const owner = claimed.get(sku);
         if (owner && owner !== id) {
-          const s = dupSkusFor.get(id) ?? new Set<string>();
-          s.add(sku);
-          dupSkusFor.set(id, s);
+          const m = dupSkusFor.get(id) ?? new Map<string, string>();
+          m.set(sku, owner);
+          dupSkusFor.set(id, m);
         } else claimed.set(sku, id);
       }
     }
 
     const results: ChangeResult[] = new Array(body.changes.length);
-    await mapPool([...groups.entries()], CONCURRENCY, async ([id, g]) => {
-      const res = await applyProductChanges(
-        this.db,
-        me,
-        id,
-        g.map((x) => x.c),
-        {
-          source: body.source,
-          claimedSkus: dupSkusFor.get(id),
-        },
-      );
+    const runGroup = async (
+      id: string,
+      g: { idx: number; c: ChangeInput }[],
+      skip?: Set<string>,
+    ) => {
+      let res: ChangeResult[];
+      try {
+        res = await applyProductChanges(
+          this.db,
+          me,
+          id,
+          g.map((x) => x.c),
+          { source: body.source, claimedSkus: skip },
+        );
+      } catch (e) {
+        // A database error on ONE product must not fail the whole request (the other products are already
+        // saved, and a 400 would make the client revert edits that were in fact applied). This product's
+        // changes are rolled back (its transaction failed) and reported as such; the rest carry on.
+        this.log.error(
+          `batch: product ${id} failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        res = g.map((): ChangeResult => ({
+          status: 'invalid',
+          issues: [{ code: 'internal_error', message: 'The change could not be saved, try again' }],
+        }));
+      }
       g.forEach((x, i) => {
         results[x.idx] = res[i] as ChangeResult;
       });
-    });
+    };
+    const entries = [...groups.entries()];
+    await mapPool(entries, CONCURRENCY, ([id, g]) =>
+      runGroup(id, g, dupSkusFor.has(id) ? new Set(dupSkusFor.get(id)!.keys()) : undefined),
+    );
+
+    // Second pass: a product refused as "duplicate in this batch" because another product claimed the SKU first,
+    // but whose claim FAILED (invalid, conflict, ...), gets its own change re-checked against the database.
+    // The first pass changed nothing for it (the whole product is atomic), so re-running is safe.
+    for (const [id, g] of entries) {
+      const owners = dupSkusFor.get(id);
+      if (!owners) continue;
+      const freed = new Set<string>();
+      for (const [sku, owner] of owners) {
+        const og = groups.get(owner);
+        const ownerOk = og?.every(
+          (x) =>
+            x.c.field !== 'sku' ||
+            typeof x.c.value !== 'string' ||
+            x.c.value.trim() !== sku ||
+            results[x.idx]?.status === 'ok',
+        );
+        if (!ownerOk) freed.add(sku);
+      }
+      if (freed.size === 0) continue;
+      const still = new Set([...owners.keys()].filter((k) => !freed.has(k)));
+      await runGroup(id, g, still.size ? still : undefined);
+    }
     return { results };
   }
 

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { computeAdjust, matchesFilter } from '@catalog/shared';
@@ -102,6 +102,54 @@ describe('bulk change dialog', () => {
     expect(now).not.toBe(inView[idx]!.price);
     const shown = Number(now).toLocaleString('en', { minimumFractionDigits: 2 });
     await waitFor(() => expect(cell(idx, 3)).toHaveTextContent(shown));
+  });
+
+  it('closing the dialog while a big job runs: it still finishes and the table updates without a reload', async () => {
+    await renderPage();
+    const user = userEvent.setup();
+    const dlg = await openDialog(user);
+    await user.selectOptions(
+      within(dlg).getByLabelText('Operation'),
+      'Change a number by an amount',
+    );
+    await user.selectOptions(within(dlg).getByLabelText('Field'), 'Stock');
+    await startPercent(user, dlg, '1');
+    // several chunks are still to come when the person closes the window
+    await waitFor(() =>
+      expect(within(dlg).getByText(/^\d+ of 2000 products processed/)).toBeInTheDocument(),
+    );
+    await user.click(within(dlg).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(backend.products.every((p) => p.versions.stock === 1)).toBe(true), {
+      timeout: 15000,
+    });
+    const first = backend.products[0]!;
+    await waitFor(
+      () => expect(cell(0, 5)).toHaveTextContent(Number(first.stock).toLocaleString('en')),
+      { timeout: 8000 },
+    );
+  });
+
+  it('a double click on Start (or a retry of the same request) starts ONE job, not two', async () => {
+    await renderPage();
+    const user = userEvent.setup();
+    const dlg = await openDialog(user);
+    await user.selectOptions(
+      within(dlg).getByLabelText('Operation'),
+      'Change a number by an amount',
+    );
+    await user.selectOptions(within(dlg).getByLabelText('Field'), 'Stock');
+    await user.type(within(dlg).getByLabelText('Amount'), '10');
+    const start = within(dlg).getByRole('button', { name: 'Start' });
+    // two clicks in the same tick: the second one lands before React disables the button
+    fireEvent.click(start);
+    fireEvent.click(start);
+    await waitFor(() => expect(within(dlg).getByRole('progressbar')).toBeInTheDocument());
+    expect(backend.jobCount()).toBe(1);
+    // what makes a retry or a double click safe: the request carries an Idempotency-Key
+    expect(
+      backend.bulkRequests().every((r) => typeof r.key === 'string' && r.key.length >= 8),
+    ).toBe(true);
   });
 
   it('shows progress in parts while a big job runs, and lets you cancel; what was applied stays', async () => {

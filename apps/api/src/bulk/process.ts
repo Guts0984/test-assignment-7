@@ -67,8 +67,39 @@ const describe = (r: ChangeResult): Outcome => {
   }
 };
 
-/** One product, one SAVEPOINT: a database error on one product cannot poison the rest of the chunk. */
+/** PostgreSQL "data exception" (class 22) or "integrity constraint violation" (class 23): this row is bad, the connection is fine. */
+const isRowError = (e: unknown): boolean => {
+  let cur: unknown = e;
+  for (let d = 0; d < 4 && typeof cur === 'object' && cur !== null; d++) {
+    const o = cur as { code?: unknown; cause?: unknown };
+    if (typeof o.code === 'string' && /^(22|23)/.test(o.code)) return true;
+    cur = o.cause;
+  }
+  return false;
+};
+
+/**
+ * One product, one SAVEPOINT: a database error ON THAT ROW rolls back to the savepoint and the product is reported as
+ * skipped, so the rest of the chunk goes on (without this, the error would fail the whole chunk, the chunk would be retried
+ * five times and the job would end `failed`). Errors that are not about the row (connection lost...) still propagate: the
+ * chunk is retried.
+ */
 const applyOne = async (
+  tx: Tx,
+  actor: Actor,
+  jobId: string,
+  op: BulkOperation,
+  productId: string,
+): Promise<Outcome> => {
+  try {
+    return await applyOneInSavepoint(tx, actor, jobId, op, productId);
+  } catch (e) {
+    if (!isRowError(e)) throw e;
+    return { state: 'skipped', reason: 'invalid', message: 'The database refused this value' };
+  }
+};
+
+const applyOneInSavepoint = async (
   tx: Tx,
   actor: Actor,
   jobId: string,

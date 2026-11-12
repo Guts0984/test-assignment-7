@@ -26,7 +26,7 @@ docker compose up --build     # миграции и сид выполняютс�
 
 ```bash
 pnpm install
-pnpm db:up        # только postgres в docker
+pnpm db:up        # только postgres в docker, порт POSTGRES_PORT на localhost (compose.dev.yaml); обычный `docker compose up` порт БД не публикует
 pnpm dev          # api :4000 (с миграциями и сидом) + web :3000; читают корневой .env
 ```
 

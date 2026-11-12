@@ -7,6 +7,7 @@ import { createLifecycle, type Lifecycle } from '../../src/common/lifecycle';
 import { bootstrap } from '../../src/db/bootstrap';
 import { startWorker } from '../../src/bulk/worker';
 import { createTestDatabase, TEST_PASSWORDS } from './db';
+import { realSourceAddresses } from './http';
 
 export type TestServer = {
   baseUrl: string;
@@ -25,6 +26,8 @@ export const startServer = async (env: Record<string, string> = {}): Promise<Tes
   const config = loadConfig({
     DATABASE_URL: database.url,
     API_PORT: '0',
+    // without loopback aliases the test clients identify themselves through X-Forwarded-For (see ./http)
+    ...(realSourceAddresses ? {} : { TRUST_PROXY_HOPS: '1' }),
     ...env,
   });
   const lifecycle = createLifecycle();

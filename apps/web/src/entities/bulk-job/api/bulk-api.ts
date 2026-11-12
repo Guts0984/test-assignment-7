@@ -1,4 +1,5 @@
 import {
+  IDEMPOTENCY_HEADER,
   bulkJobSchema,
   previewResponseSchema,
   type BulkJob,
@@ -19,8 +20,13 @@ export const previewBulk = (filter: ProductFilter) =>
     schema: previewResponseSchema,
   });
 
-export const createBulkJob = (body: CreateBulkJob): Promise<BulkJob> =>
-  request('/bulk-jobs', { method: 'POST', body, schema: bulkJobSchema });
+export const createBulkJob = (body: CreateBulkJob, idempotencyKey?: string): Promise<BulkJob> =>
+  request('/bulk-jobs', {
+    method: 'POST',
+    body,
+    schema: bulkJobSchema,
+    ...(idempotencyKey ? { headers: { [IDEMPOTENCY_HEADER]: idempotencyKey } } : {}),
+  });
 
 export const getBulkJob = (id: string): Promise<BulkJob> =>
   request(`/bulk-jobs/${id}`, { schema: bulkJobSchema });

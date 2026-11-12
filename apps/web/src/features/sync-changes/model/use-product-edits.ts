@@ -12,8 +12,10 @@ import {
   type CellError,
   type ConflictInfo,
   type EditSource,
+  type CommitOptions,
 } from '@/entities/product';
 import {
+  discardChange,
   emptyStack,
   pushAction,
   redo as redoStack,
@@ -48,7 +50,7 @@ export type ProductEdits = {
   status: SyncStatus;
   canUndo: boolean;
   canRedo: boolean;
-  commit: (edits: CellEdit[], source: EditSource) => void;
+  commit: (edits: CellEdit[], source: EditSource, opts?: CommitOptions) => void;
   undo: () => void;
   redo: () => void;
   resolveConflict: (id: string, field: EditableField, choice: 'mine' | 'theirs') => void;
@@ -85,6 +87,23 @@ export const useProductEdits = (ui: EditUi, options: SyncOptions = {}): ProductE
     return rowsIndex.current.map;
   }, [qc]);
 
+  // Results of one response are collected and written to the cache ONCE: a 500-cell fill would otherwise
+  // rebuild the 2000-row table 500 times (one pass per confirmed cell).
+  const patches = useRef<Parameters<typeof patchCachedRows>[1][number][]>([]);
+  const errorPatch = useRef<Record<string, CellError | null>>({});
+  const flushPatches = useCallback(() => {
+    if (patches.current.length > 0) {
+      const batch = patches.current;
+      patches.current = [];
+      patchCachedRows(qc, batch);
+    }
+    if (Object.keys(errorPatch.current).length > 0) {
+      const batch = errorPatch.current;
+      errorPatch.current = {};
+      uiRef.current.setErrors(batch);
+    }
+  }, [qc]);
+
   const engineRef = useRef<SyncEngine | null>(null);
   const optionsRef = useRef(options);
   useEffect(() => {
@@ -109,15 +128,18 @@ export const useProductEdits = (ui: EditUi, options: SyncOptions = {}): ProductE
         const current = rowsById().get(e.id)?.[e.field];
         // If the person already typed something newer into this cell, keep theirs; only the version advances.
         const keepLocal = !same(current, e.value);
-        patchCachedRows(qc, [
-          { id: e.id, field: e.field, version: newVersion, ...(keepLocal ? {} : { value }) },
-        ]);
-        uiRef.current.setErrors({ [cellKey(e.id, e.field)]: null });
+        patches.current.push({
+          id: e.id,
+          field: e.field,
+          version: newVersion,
+          ...(keepLocal ? {} : { value }),
+        });
+        errorPatch.current[cellKey(e.id, e.field)] = null;
       },
       onConflict: (e, r) => {
         const key = cellKey(e.id, e.field);
         // The server's version becomes our baseVersion, so "keep mine" can be re-sent and win.
-        patchCachedRows(qc, [{ id: e.id, field: e.field, version: r.currentVersion }]);
+        patches.current.push({ id: e.id, field: e.field, version: r.currentVersion });
         conflicts.current.set(key, { edit: e, theirs: r.currentValue });
         uiRef.current.setConflicts({
           [key]: {
@@ -129,19 +151,31 @@ export const useProductEdits = (ui: EditUi, options: SyncOptions = {}): ProductE
         });
       },
       onRejected: (e, r) => {
+        // It never happened: take it off the undo stack (an undo/redo that is refused is not on it).
+        if (e.source !== 'undo') {
+          const next = discardChange(stackRef.current, {
+            id: e.id,
+            field: e.field,
+            after: e.value,
+          });
+          if (next !== stackRef.current) {
+            stackRef.current = next;
+            setStack(next);
+          }
+        }
         const current = rowsById().get(e.id)?.[e.field];
         if (same(current, e.value))
-          patchCachedRows(qc, [{ id: e.id, field: e.field, value: e.previous }]);
-        const err = cellErrorFromResult(e.field, r);
-        uiRef.current.setErrors({ [cellKey(e.id, e.field)]: err });
+          patches.current.push({ id: e.id, field: e.field, value: e.previous });
+        errorPatch.current[cellKey(e.id, e.field)] = cellErrorFromResult(e.field, r);
       },
+      onResultsHandled: flushPatches,
     });
     engineRef.current = engine;
     return () => {
       engine.dispose();
       engineRef.current = null;
     };
-  }, [qc, rowsById]);
+  }, [qc, rowsById, flushPatches]);
 
   // Leaving the page with unsaved edits asks for confirmation.
   useEffect(() => {
@@ -153,14 +187,22 @@ export const useProductEdits = (ui: EditUi, options: SyncOptions = {}): ProductE
   }, []);
 
   const commit: ProductEdits['commit'] = useCallback(
-    (edits, source) => {
+    (edits, source, opts) => {
       const index = rowsById();
       const pending: PendingEdit[] = [];
       const undoChanges: { id: string; field: EditableField; before: unknown; after: unknown }[] =
         [];
+      const heldBack: Record<string, CellError> = {};
       for (const e of edits) {
         const row = index.get(e.id);
         if (!row) continue;
+        // A cell with an unresolved conflict still SHOWS the user's own value, but the server holds someone
+        // else's. Only a deliberate typed edit (`overwriteConflicts`) may replace it; undo/redo, paste, fill and Delete must not
+        // silently overwrite the other person's value (the person has not chosen between the two yet).
+        if (!opts?.overwriteConflicts && conflicts.current.has(cellKey(e.id, e.field))) {
+          heldBack[cellKey(e.id, e.field)] = { code: 'conflictPending', field: e.field };
+          continue;
+        }
         const previous = row[e.field];
         if (same(previous, e.value)) continue;
         pending.push({
@@ -172,6 +214,7 @@ export const useProductEdits = (ui: EditUi, options: SyncOptions = {}): ProductE
         });
         undoChanges.push({ id: e.id, field: e.field, before: previous, after: e.value });
       }
+      if (Object.keys(heldBack).length) uiRef.current.setErrors(heldBack);
       if (pending.length === 0) return;
       patchCachedRows(
         qc,

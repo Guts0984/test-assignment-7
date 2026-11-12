@@ -1,6 +1,8 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import en from '@/shared/i18n/messages/en.json';
+import uk from '@/shared/i18n/messages/uk.json';
 import { useCallback, useMemo, type ClipboardEvent } from 'react';
 import type { Me, ProductRow } from '@catalog/shared';
 import {
@@ -10,6 +12,7 @@ import {
   type CellPlan,
   type CellTarget,
   type EditSource,
+  type CommitOptions,
 } from '@/entities/product';
 import { buildCopy, planPasteTargets, type CopyPayload } from '@/features/clipboard';
 import { planFillTargets } from '@/features/fill-handle';
@@ -31,7 +34,7 @@ export type ActionCtx = {
   dims: GridDims;
   me: Me;
   locale: AppLocale;
-  commit: (edits: CellEdit[], source: EditSource) => void;
+  commit: (edits: CellEdit[], source: EditSource, opts?: CommitOptions) => void;
 };
 
 /** What the last in-app copy left behind (typed values survive; the system clipboard only has text). */
@@ -61,6 +64,15 @@ export const useGridActions = (
       const group = c.field === 'category' ? 'categories' : 'status';
       for (const o of c.options ?? []) {
         map.set(`${c.field}:${o.toLowerCase()}`, o);
+        // a label in EITHER language: a "Книги" copied from a Ukrainian sheet pastes fine into the English UI
+        for (const messages of [en, uk]) {
+          const label = (group === 'categories' ? messages.categories : messages.status) as Record<
+            string,
+            string
+          >;
+          const text = label[o];
+          if (text) map.set(`${c.field}:${text.toLowerCase()}`, o);
+        }
         map.set(`${c.field}:${t(`${group}.${o}`).toLowerCase()}`, o);
       }
     }

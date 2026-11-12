@@ -91,7 +91,7 @@ describe('browsers that do not fire clipboard events for a focused cell (Firefox
     const { probe } = setup();
     const user = userEvent.setup();
     await user.click(cell(0, STOCK));
-    fireEvent.keyDown(cell(0, STOCK), { key: 'v', metaKey: true });
+    fireEvent.keyDown(cell(0, STOCK), { key: 'v', ctrlKey: true });
     expect(document.activeElement).toBe(proxy());
     fireEvent.paste(proxy(), { clipboardData: clip('77\n88').data });
     expect(probe.commits[0]!.edits.map((e) => e.value)).toEqual([77, 88]);
@@ -125,6 +125,25 @@ describe('paste', () => {
     expect(e.length).toBeLessThanOrEqual(30);
     const first = e.find((x) => x.id === products[10]!.id && x.field === 'price');
     expect(first?.value).toBe(products[0]!.price); // exact string, no locale round trip
+  });
+
+  it('a category/status label in the OTHER language pastes fine (Ukrainian text into the English UI)', async () => {
+    const { probe } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(0, 2)); // category
+    // "Телефони" = phones, "Електроніка" = electronics: paste whichever differs from the current value
+    const [text, value] =
+      products[0]!.category === 'phones' ? ['Електроніка', 'electronics'] : ['Телефони', 'phones'];
+    fireEvent.paste(screen.getByRole('grid'), { clipboardData: clip(text!).data });
+    expect(probe.commits[0]!.edits).toEqual([{ id: products[0]!.id, field: 'category', value }]);
+    await user.click(cell(1, 6)); // status
+    fireEvent.paste(screen.getByRole('grid'), {
+      clipboardData: clip(products[1]!.status === 'archived' ? 'Чернетка' : 'В архіві').data,
+    });
+    expect(probe.commits.at(-1)!.edits[0]).toMatchObject({
+      field: 'status',
+      value: products[1]!.status === 'archived' ? 'draft' : 'archived',
+    });
   });
 
   it('after a paste the pasted area is selected', async () => {

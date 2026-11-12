@@ -87,6 +87,7 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
   } | null>(null);
   const activeKey = useStore(gridStore, (st) => st.selection?.active ?? null);
   const conflicts = useStore(gridStore, (st) => st.conflicts);
+  const errorCount = useStore(gridStore, (st) => Object.keys(st.errors).length);
   const [conflictRect, setConflictRect] = useState<AnchorRect | null>(null);
   // Hiding the popover is not resolving: the conflict stays until the person chooses.
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
@@ -132,6 +133,14 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
     await qc.refetchQueries({ queryKey: productKeys.all });
     refresh();
   }, [edits, qc, refresh]);
+
+  /** Gives focus back to the grid's active cell after a popover that held it went away (never to <body>). */
+  const focusActiveCell = () =>
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLElement>('[role="gridcell"][tabindex="0"]')
+        ?.focus({ preventScroll: true }),
+    );
 
   const openHistory = () => setHistory(activeCell());
 
@@ -228,7 +237,10 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
         >
           {t('toolbar.redo')}
         </Button>
-        <SyncIndicator status={edits.status} />
+        <SyncIndicator
+          status={edits.status}
+          problems={Object.keys(conflicts).length + errorCount}
+        />
       </section>
       <main id="grid" className="min-h-0 flex-1 p-2">
         {products.isPending && (
@@ -305,8 +317,14 @@ export const CatalogPage = ({ syncOptions }: { syncOptions?: SyncOptions }) => {
           conflict={conflictKey !== null && conflictKey === dismissedKey ? null : conflict}
           field={activeField}
           locale={locale}
-          onResolve={(choice) => edits.resolveConflict(activeRowId, activeField, choice)}
-          onClose={() => setDismissedKey(conflictKey)}
+          onResolve={(choice) => {
+            edits.resolveConflict(activeRowId, activeField, choice);
+            focusActiveCell(); // the button that had focus disappears with the popover
+          }}
+          onClose={() => {
+            setDismissedKey(conflictKey);
+            focusActiveCell();
+          }}
         />
       )}
     </div>

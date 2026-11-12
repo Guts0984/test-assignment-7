@@ -14,7 +14,10 @@ export const skuSchema = z
   .min(1)
   .max(64)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'sku: letters, digits, . _ -');
-export const nameSchema = z.string().trim().min(1).max(200);
+/** PostgreSQL text cannot hold U+0000: refuse it here (a clean 4xx) instead of letting the database fail. */
+export const noNul = (s: string): boolean => !s.includes('\u0000');
+export const NUL_MESSAGE = 'must not contain a NUL character';
+export const nameSchema = z.string().trim().min(1).max(200).refine(noNul, NUL_MESSAGE);
 
 export const priceSchema = z
   .string()
@@ -28,7 +31,7 @@ export const stockSchema = z.number().int().min(0).max(2_147_483_647);
 
 export const TAG_MAX_LEN = 50;
 export const TAGS_MAX = 20;
-export const tagSchema = z.string().trim().min(1).max(TAG_MAX_LEN);
+export const tagSchema = z.string().trim().min(1).max(TAG_MAX_LEN).refine(noNul, NUL_MESSAGE);
 export const tagsSchema = z
   .array(tagSchema)
   .max(TAGS_MAX)

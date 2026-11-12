@@ -1,4 +1,18 @@
 import http from 'node:http';
+import net from 'node:net';
+
+/**
+ * Linux gives every 127.x.y.z address to the loopback interface, so a test can connect FROM a chosen address and the
+ * server sees a genuinely different client. macOS (and Windows) have only 127.0.0.1: binding another one fails with
+ * EADDRNOTAVAIL. There, `call` says who it is through X-Forwarded-For instead, and the test server trusts one proxy hop
+ * (see startServer). The few tests that need REAL source addresses (spoofed headers must be ignored) are skipped there.
+ */
+export const realSourceAddresses: boolean = await new Promise<boolean>((resolve) => {
+  if (process.env.NO_LOOPBACK_ALIASES) return resolve(false); // lets Linux rehearse the macOS path
+  const probe = net.createServer();
+  probe.once('error', () => resolve(false));
+  probe.listen({ host: '127.5.9.9', port: 0 }, () => probe.close(() => resolve(true)));
+});
 
 export type Res = {
   status: number;
@@ -34,13 +48,14 @@ export const call = (
         port: u.port,
         method,
         path,
-        localAddress: opts.from,
+        localAddress: realSourceAddresses ? opts.from : undefined,
         agent: false,
         headers: {
           ...(payload !== undefined
             ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
             : {}),
           ...(opts.cookie ? { cookie: opts.cookie } : {}),
+          ...(!realSourceAddresses && opts.from ? { 'x-forwarded-for': opts.from } : {}),
           ...opts.headers,
         },
       },

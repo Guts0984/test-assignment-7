@@ -1,5 +1,7 @@
 'use client';
 
+import { hasShortcutModifier } from '@/shared/lib/platform';
+import { cellErrorText } from '../lib/error-text';
 import { useTranslations } from 'next-intl';
 import {
   useCallback,
@@ -24,6 +26,7 @@ import {
   type CellEdit,
   type CellError,
   type EditSource,
+  type CommitOptions,
   type TableQuery,
 } from '@/entities/product';
 import { planCellEdit } from '@/features/edit-cell';
@@ -34,6 +37,7 @@ import {
   computeWindow,
   end,
   home,
+  isSingleCell,
   page,
   rangeSize,
   reclamp,
@@ -71,7 +75,7 @@ export type ProductGridProps = {
   onSort: (field: EditableField) => void;
   renderColumnFilter?: (field: EditableField) => ReactNode;
   /** Applies edits (optimistically) and queues them for the server. */
-  commit: (edits: CellEdit[], source: EditSource) => void;
+  commit: (edits: CellEdit[], source: EditSource, opts?: CommitOptions) => void;
   /** Clipboard / undo / clear are implemented by features; the grid forwards the intent. */
   onCommand?: (cmd: GridCommand, selection: Selection) => void;
   /** Reports what a paste / fill / clear did (applied, skipped, invalid) for the page to announce. */
@@ -167,6 +171,7 @@ const GridInner = ({
     return () => ro.disconnect();
   }, []);
 
+  const selectAllNoScroll = useRef(false);
   const lastWindowKey = useRef('');
   const onScroll = useCallback(() => {
     const el = viewportRef.current;
@@ -187,6 +192,22 @@ const GridInner = ({
   }, [viewportHeight, order.length]);
 
   // ---- selection housekeeping ----------------------------------------------
+  // The selection is stored as row NUMBERS, but a new sort/filter puts other products on them. When the product
+  // under the active cell changed, follow that product to its new row (collapsed to it), or drop the selection
+  // if it is no longer shown - never let it silently point at a different product.
+  const prevOrder = useRef(order);
+  useLayoutEffect(() => {
+    const before = prevOrder.current;
+    prevOrder.current = order;
+    const cur = store.getState().selection;
+    if (!cur || before === order) return;
+    const id = before[cur.active.row];
+    if (id === undefined || order[cur.active.row] === id) return; // same product still there
+    const at = order.indexOf(id);
+    store.getState().stopEditing();
+    store.getState().setSelection(at < 0 ? null : single({ row: at, col: cur.active.col }));
+  }, [order, store]);
+
   useEffect(() => {
     const cur = store.getState().selection;
     if (!cur) return;
@@ -207,13 +228,16 @@ const GridInner = ({
     if (!selection) return;
     const el = viewportRef.current;
     if (!el) return;
+    // Follow the corner that MOVES (focus), like Excel: with Shift+arrows/PageDown the range grows towards
+    // it, and after a Shift+click it is the clicked cell, so a wheel-scrolled view is not thrown back to the anchor.
     const next = scrollTopToReveal({
-      row: selection.active.row,
+      row: selectAllNoScroll.current ? selection.active.row : selection.focus.row,
       scrollTop: el.scrollTop,
       viewportHeight: el.clientHeight || viewportHeight,
       rowHeight: ROW_HEIGHT,
       headerHeight: HEADER_HEIGHT,
     });
+    selectAllNoScroll.current = false;
     if (next !== el.scrollTop) {
       el.scrollTop = next;
       setScrollTop(next);
@@ -312,7 +336,7 @@ const GridInner = ({
         return false;
       }
       store.getState().setErrors({ [cellKey(row.id, col.field)]: null });
-      if (plan.edits.length) l.commit(plan.edits, 'edit');
+      if (plan.edits.length) l.commit(plan.edits, 'edit', { overwriteConflicts: true });
       store.getState().stopEditing();
       focusRequested.current = true;
       if (sel) setSel(move === 'none' ? { ...sel } : advance(sel, l.dims, move));
@@ -443,8 +467,9 @@ const GridInner = ({
     // not). A hidden text field takes focus for the keystroke, so the NATIVE event fires everywhere; the
     // handlers then hand focus back to the cell.
     const k = e.key.toLowerCase();
+    // The platform's own modifier only: on a Mac Ctrl+C is NOT a copy, so it must not steal focus to the proxy.
     if (
-      (e.ctrlKey || e.metaKey) &&
+      hasShortcutModifier(e) &&
       !e.altKey &&
       !e.shiftKey &&
       (k === 'c' || k === 'x' || k === 'v')
@@ -470,6 +495,9 @@ const GridInner = ({
       }
       return;
     }
+    // Tab walks the cells of a multi-cell range (like Excel), but on a single cell it is the browser's: focus
+    // leaves the grid. Otherwise the grid would be a keyboard trap (WCAG 2.1.2); arrows/Home/End/PageDown move inside.
+    if (action.type === 'advance' && isSingleCell(selectionRange(sel))) return;
     e.preventDefault();
     switch (action.type) {
       case 'arrow':
@@ -483,6 +511,7 @@ const GridInner = ({
       case 'page':
         return setSel(page(sel, dims, pageRows, action.dir, action.extend));
       case 'selectAll':
+        selectAllNoScroll.current = true; // Ctrl+A leaves the view where it is, like Excel
         return setSel(selectAll(sel, dims));
       case 'advance':
         return setSel(advance(sel, dims, action.dir));
@@ -563,6 +592,30 @@ const GridInner = ({
     v['--w-total'] = `${total}px`;
     return v as CSSProperties;
   }, [widths]);
+
+  // Errors are shown as a tooltip on the ACTIVE cell only, so a screen reader would never hear about a refused
+  // paste or a failed save on other cells: announce new/changed errors assertively.
+  const errors = useGrid((s) => s.errors);
+  const seenErrors = useRef(errors);
+  const [alertText, setAlertText] = useState('');
+  useEffect(() => {
+    const before = seenErrors.current;
+    seenErrors.current = errors;
+    const fresh = Object.entries(errors).filter(([k, e]) => e && before[k] !== e);
+    if (fresh.length === 0) return;
+    const [key, err] = fresh[0]!;
+    const sep = key.lastIndexOf(':');
+    const row = latest.current.rowsById.get(key.slice(0, sep));
+    const field = key.slice(sep + 1) as EditableField;
+    const one =
+      `${row?.sku ?? ''} ${t(`columns.${field}`)}: ${cellErrorText(t, err!, field, locale)}`.trim();
+    // a trailing zero-width mark makes an identical message announce again
+    setAlertText(
+      (prev) =>
+        (fresh.length > 1 ? `${t('grid.errorsMany', { count: fresh.length })} ${one}` : one) +
+        (prev.endsWith('\u200b') ? '' : '\u200b'),
+    );
+  }, [errors, locale, t]);
 
   const status = selection
     ? rangeSize(selectionRange(selection)) > 1
@@ -666,6 +719,13 @@ const GridInner = ({
       <p role="status" aria-live="polite" className="sr-only">
         {status}
       </p>
+      {/* Only present while there is something to say: an always-mounted empty alert would be a second
+          `role="alert"` on every page that shows its own error. Assistive tech announces an inserted alert. */}
+      {alertText && (
+        <p role="alert" className="sr-only" data-testid="grid-error-live">
+          {alertText}
+        </p>
+      )}
     </div>
   );
 };

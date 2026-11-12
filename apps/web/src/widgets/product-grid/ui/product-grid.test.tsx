@@ -128,6 +128,141 @@ describe('keyboard navigation', () => {
     expect(Math.max(...idx)).toBe(2001);
   });
 
+  it('Shift+PageDown keeps scrolling after the selection: the moving corner stays in view', async () => {
+    const { store } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(0, 1));
+    await user.keyboard('{Shift>}{PageDown}{PageDown}{PageDown}{/Shift}');
+    const s = store.getState().selection!;
+    expect(s.focus.row).toBeGreaterThan(20);
+    const viewport = screen.getByTestId('grid-viewport');
+    expect(viewport.scrollTop).toBeGreaterThan(0); // followed the corner, not the anchor
+    expect(cell(s.focus.row, s.focus.col)).toBeInTheDocument(); // and it is mounted
+  });
+
+  it('Shift+click after wheel-scrolling does not throw the view back to the anchor', async () => {
+    const { store } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(0, 1));
+    const viewport = screen.getByTestId('grid-viewport');
+    act(() => {
+      viewport.scrollTop = 40 * 600;
+      fireEvent.scroll(viewport);
+    });
+    const mid = bodyRows();
+    const target = mid[Math.floor(mid.length / 2)]!.querySelector<HTMLElement>(
+      '[role="gridcell"][data-col="2"]',
+    )!;
+    const row = Number(target.getAttribute('data-row'));
+    expect(row).toBeGreaterThan(500);
+    fireEvent.mouseDown(target, { button: 0, shiftKey: true });
+    fireEvent.mouseUp(window);
+    expect(store.getState().selection!.focus.row).toBe(row);
+    expect(viewport.scrollTop).toBe(40 * 600); // not reset to the top
+  });
+
+  it('Ctrl+A does not move the view', async () => {
+    setup();
+    const user = userEvent.setup();
+    await user.click(cell(3, 1));
+    const viewport = screen.getByTestId('grid-viewport');
+    const before = viewport.scrollTop;
+    await user.keyboard('{Control>}a{/Control}');
+    expect(viewport.scrollTop).toBe(before);
+  });
+
+  it('a new sort/filter: the selection follows the PRODUCT, it does not silently point at another one', async () => {
+    const { store, probe } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(2, 1));
+    const id = products[2]!.id;
+    act(() => probe.setRows([...products].reverse())); // e.g. sorted the other way
+    const s = store.getState().selection!;
+    expect(s.active).toEqual({ row: 1997, col: 1 });
+    expect(s.anchor).toEqual(s.focus); // collapsed to that one product
+    expect([...products].reverse()[s.active.row]!.id).toBe(id);
+  });
+
+  it('a filter that hides the selected product drops the selection', async () => {
+    const { store, probe } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(2, 1));
+    act(() => probe.setRows(products.filter((_, i) => i !== 2)));
+    expect(store.getState().selection).toBeNull();
+  });
+
+  it('rows changing WITHOUT a reorder (an edit, a refetch) keep the selection untouched', async () => {
+    const { store, probe } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(2, 1));
+    await user.keyboard('{Shift>}{ArrowDown}{/Shift}');
+    const before = store.getState().selection;
+    act(() => probe.setRows(products.map((p) => ({ ...p, stock: p.stock + 1 }))));
+    expect(store.getState().selection).toBe(before);
+  });
+
+  it('on a Mac Ctrl+C is not a copy: focus stays on the cell and the arrows keep working (Cmd+C is the copy)', async () => {
+    const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    try {
+      setup();
+      const user = userEvent.setup();
+      await user.click(cell(3, 2));
+      await user.keyboard('{Control>}c{/Control}');
+      expect(document.activeElement).toBe(cell(3, 2)); // NOT the hidden clipboard field
+      await user.keyboard('{ArrowDown}');
+      expect(document.activeElement).toBe(cell(4, 2));
+      await user.keyboard('{Meta>}c{/Meta}');
+      expect(document.activeElement).toHaveAttribute('data-clip-proxy'); // Cmd+C takes the copy path
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it('Tab on a single cell is not swallowed (no keyboard trap); inside a range it walks the range like Excel', async () => {
+    const { store } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(3, 2));
+    const down = fireEvent.keyDown(cell(3, 2), { key: 'Tab' });
+    expect(down).toBe(true); // not preventDefault()-ed: the browser moves focus out of the grid
+    expect(store.getState().selection!.active).toEqual({ row: 3, col: 2 });
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}');
+    const inRange = fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+    expect(inRange).toBe(false); // handled by the grid
+    expect(store.getState().selection!.active).toEqual({ row: 3, col: 3 });
+  });
+
+  it('errors on cells that are NOT active (a failed save, a refused paste) are announced too', async () => {
+    const { store } = setup();
+    const user = userEvent.setup();
+    await user.click(cell(0, 1));
+    expect(screen.queryByTestId('grid-error-live')).toBeNull(); // nothing to announce yet
+    act(() => {
+      store
+        .getState()
+        .setErrors({ [`${products[7]!.id}:price`]: { code: 'invalid', field: 'price' } });
+    });
+    const live = screen.getByTestId('grid-error-live');
+    expect(live).toHaveTextContent(`${products[7]!.sku} Price: This value is not valid.`);
+    act(() => {
+      store.getState().setErrors({
+        [`${products[8]!.id}:price`]: { code: 'invalid', field: 'price' },
+        [`${products[9]!.id}:price`]: { code: 'invalid', field: 'price' },
+      });
+    });
+    expect(live).toHaveTextContent('2 cells have errors.');
+  });
+
+  it('a column cannot be dragged wider than 600px, same as with the keyboard', async () => {
+    const { store } = setup();
+    const handle = screen.getByLabelText('Resize column Name');
+    handle.setPointerCapture = vi.fn(); // not implemented by jsdom
+    fireEvent.pointerDown(handle, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 5000, pointerId: 1 });
+    expect(store.getState().colWidths.name).toBe(600);
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    expect(store.getState().colWidths.name).toBe(600);
+  });
+
   it('Shift+Arrows select a range; Ctrl+A selects all; Esc collapses', async () => {
     const { store } = setup();
     const user = userEvent.setup();
@@ -223,7 +358,22 @@ describe('editing from the keyboard', () => {
     setup();
     const user = userEvent.setup();
     await user.dblClick(cell(0, 1));
-    expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument();
+    // it opens on the CURRENT value, not on an empty draft (Enter would save an empty name)
+    expect((screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe(
+      products[0]!.name,
+    );
+  });
+
+  it('a double click INSIDE an open editor (word selection) does not wipe the draft', async () => {
+    setup();
+    const user = userEvent.setup();
+    await user.click(cell(0, 1));
+    await user.keyboard('{F2}');
+    const ed = screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement;
+    await user.dblClick(ed);
+    expect((screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe(
+      products[0]!.name,
+    );
   });
 
   it('Esc cancels: no change, no request, value restored', async () => {
@@ -268,6 +418,10 @@ describe('editing from the keyboard', () => {
     const tip = screen.getByRole('tooltip');
     expect(tip).toHaveTextContent('Enter a whole number.');
     expect(ed).toHaveAttribute('aria-describedby', tip.id);
+    // the tooltip exists only on the active cell: a screen reader is told through an assertive live region
+    const live = await screen.findByTestId('grid-error-live');
+    expect(live).toHaveAttribute('role', 'alert');
+    expect(live).toHaveTextContent(`${products[0]!.sku} Stock: Enter a whole number.`);
     // fixing the value clears the error and sends it
     await user.clear(ed);
     await user.keyboard('7{Enter}');
@@ -462,11 +616,11 @@ describe('empty and shrinking grids', () => {
     expect(screen.getByRole('grid')).toHaveAttribute('aria-rowcount', '1');
     await expectNoA11yViolations(container);
   });
-  it('a selection beyond the end of a shrunken list is pulled back', async () => {
+  it('a list that shrinks below the selected product drops the selection (it must not slide onto another product)', async () => {
     const { store, probe } = setup();
     const user = userEvent.setup();
     await user.click(cell(10, 1));
     act(() => probe.setRows(products.slice(0, 5) as ProductRow[]));
-    expect(store.getState().selection!.active.row).toBe(4);
+    expect(store.getState().selection).toBeNull();
   });
 });

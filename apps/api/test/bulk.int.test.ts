@@ -94,6 +94,94 @@ describe('the spec example: price +10% for a category with status active', () =>
   });
 });
 
+describe('idempotent job creation (a double click or a retry must not apply "+10%" twice)', () => {
+  const body = { filter: { category: ['books'], status: ['active'] }, operation: adjust('10') };
+  const withKey = (ses: Session, b: unknown, key: string) =>
+    call(s.baseUrl, 'POST', '/bulk-jobs', {
+      cookie: ses.cookie,
+      body: b,
+      headers: { 'idempotency-key': key },
+    });
+
+  it('the same key and body returns the SAME job; only one job exists and the change is applied once', async () => {
+    const key = `job-${Date.now()}-a`;
+    const [a, b, c] = await Promise.all([
+      withKey(admin, body, key),
+      withKey(admin, body, key),
+      withKey(admin, body, key),
+    ]);
+    expect([a.status, b.status, c.status]).toEqual([201, 201, 201]);
+    const ids = new Set([a, b, c].map((r) => (r.body as { id: string }).id));
+    expect(ids.size).toBe(1);
+    expect(
+      (await q(`select count(*)::int n from bulk_jobs where id = $1`, [[...ids][0]]))[0].n,
+    ).toBe(1);
+    await waitJob(s, admin, [...ids][0]!, terminal);
+    // each affected product moved exactly once (+10%), not +21%
+    const moved = await q(
+      `select count(*)::int n from product_changes where job_id = $1 and field = 'price'`,
+      [[...ids][0]],
+    );
+    const items = await q(
+      `select count(*)::int n from bulk_job_items where job_id = $1 and state = 'applied'`,
+      [[...ids][0]],
+    );
+    expect(moved[0].n).toBe(items[0].n);
+  });
+
+  it('the same key with a DIFFERENT body is refused (422); a different key starts a different job', async () => {
+    const key = `job-${Date.now()}-b`;
+    expect((await withKey(admin, body, key)).status).toBe(201);
+    const other = { ...body, operation: adjust('20') };
+    expect((await withKey(admin, other, key)).status).toBe(422);
+    const fresh = await withKey(admin, body, `${key}-2`);
+    expect(fresh.status).toBe(201);
+  });
+
+  it("keys are per user: another user with the same key does not get someone else's job", async () => {
+    const key = `job-${Date.now()}-c`;
+    const mine = await withKey(admin, body, key);
+    const theirs = await withKey(editor1, { ...body, filter: { category: ['books'] } }, key);
+    expect(theirs.status).toBe(201);
+    expect((theirs.body as { id: string }).id).not.toBe((mine.body as { id: string }).id);
+  });
+
+  it('a malformed key is a 400', async () => {
+    expect((await withKey(admin, body, 'x')).status).toBe(400);
+  });
+});
+
+describe('a database error on ONE product does not fail the job', () => {
+  it('that product is skipped with a reason, every other product is changed, the job ends done', async () => {
+    const books = initial.filter((p) => p.category === 'books' && p.status === 'active');
+    const bad = books[0]!;
+    // a rule only the database knows about: this one product refuses the new name
+    await pool.query(`update products set sku = 'FAIL-ROW-1' where id = $1`, [bad.id]);
+    await pool.query(
+      `alter table products add constraint test_row_boom check (sku <> 'FAIL-ROW-1' or name <> 'BULK-NAME')`,
+    );
+    try {
+      const job = await startJob(s, admin, {
+        filter: { category: ['books'], status: ['active'] },
+        operation: { type: 'set', field: 'name', value: 'BULK-NAME' },
+      });
+      const done = await waitJob(s, admin, job.id, terminal);
+      expect(done.status).toBe('done'); // used to be `failed` after 5 retries of the whole chunk
+      expect(done.skipped).toBeGreaterThanOrEqual(1);
+      expect((await q(`select name from products where id = $1`, [bad.id]))[0].name).not.toBe(
+        'BULK-NAME',
+      );
+      const changed = (await q(`select count(*)::int n from products where name = 'BULK-NAME'`))[0]
+        .n;
+      expect(changed).toBe(books.length - 1);
+      expect(done.report.some((r) => r.sku === 'FAIL-ROW-1')).toBe(true);
+    } finally {
+      await pool.query(`alter table products drop constraint test_row_boom`);
+      await pool.query(`update products set sku = $2 where id = $1`, [bad.id, bad.sku]);
+    }
+  });
+});
+
 describe('permissions', () => {
   it('viewer and anonymous cannot create/cancel/revert/preview; jobs of others are invisible', async () => {
     const body = { filter: {}, operation: adjust('1', 'stock', 'absolute') };

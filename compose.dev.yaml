@@ -1,0 +1,7 @@
+# Only for `pnpm dev`: publishes PostgreSQL on the host (localhost only) so the API started by pnpm can reach it.
+# `docker compose up` alone does NOT use this file, so a busy port 5432 cannot break it.
+#   pnpm db:up      (uses POSTGRES_PORT from .env, default 5432)
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'

@@ -114,6 +114,36 @@ describe('cell history popover', () => {
   });
 });
 
+describe('undo and a refused edit', () => {
+  it('an edit the server refused is NOT on the undo stack: Ctrl+Z sends nothing and does not spend a step', async () => {
+    await renderPage();
+    const user = userEvent.setup();
+    const idx = backend.products.findIndex(
+      (p) => p.price !== null && p.oldPrice === null && p.status !== 'archived',
+    );
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(idx).toBeLessThan(14); // rendered
+    const p = backend.products[idx]!;
+    // an edit that earlier succeeds (the undo stack has something real in it)
+    await user.click(cell(idx, 5));
+    await user.keyboard(`${p.stock + 1}{Enter}`);
+    await saved();
+    // someone raises the price on the server, so a perfectly valid-looking oldPrice is now refused there
+    backend.externalEdit(p.id, 'price', '900000.00');
+    await user.click(cell(idx, 4));
+    await user.keyboard('1000.00{Enter}');
+    await saved();
+    await waitFor(() => expect(cell(idx, 4).getAttribute('aria-invalid')).toBe('true'));
+    const sent = backend.batchRequests().length;
+    await user.keyboard('{Control>}z{/Control}');
+    await saved();
+    // the first Ctrl+Z undid the STOCK edit (the real one), not the refused oldPrice
+    expect(backend.batchRequests().length).toBe(sent + 1);
+    const last = backend.batchRequests().at(-1)!.body as { changes: { field: string }[] };
+    expect(last.changes.map((c) => c.field)).toEqual(['stock']);
+  });
+});
+
 describe('conflict resolution popover', () => {
   const makeConflict = async (user: ReturnType<typeof userEvent.setup>) => {
     const p = backend.products[0]!;
@@ -140,6 +170,31 @@ describe('conflict resolution popover', () => {
     expect(last.changes[0]!.baseVersion).toBe(1); // the server's version, not the stale 0
     expect(screen.queryByRole('dialog', { name: 'Edit conflict' })).not.toBeInTheDocument();
     expect(cell(0, 1).getAttribute('aria-label')).not.toMatch(/conflict/);
+  });
+
+  it("Delete and Ctrl+Z on a cell in conflict do NOT silently overwrite the other person's value", async () => {
+    await renderPage();
+    const user = userEvent.setup();
+    await makeConflict(user);
+    await user.keyboard('{Escape}');
+    const before = backend.batchRequests().length;
+    await user.keyboard('{Delete}');
+    await user.keyboard('{Control>}z{/Control}');
+    await saved();
+    expect(backend.batchRequests().length).toBe(before); // nothing was sent
+    expect(backend.products[0]!.name).toBe('Changed by bob'); // the server still has bob's value
+    expect(cell(0, 1).getAttribute('aria-label')).toMatch(/conflict/); // still unresolved
+  });
+
+  it('after choosing, focus goes back to the cell (not to <body>), so the keyboard keeps working', async () => {
+    await renderPage();
+    const user = userEvent.setup();
+    await makeConflict(user);
+    const pop = await screen.findByRole('dialog', { name: 'Edit conflict' });
+    await user.click(within(pop).getByRole('button', { name: 'Use theirs' }));
+    await waitFor(() => expect(document.activeElement).toBe(cell(0, 1)));
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).toBe(cell(1, 1));
   });
 
   it('"use theirs" shows the server value and sends nothing more', async () => {

@@ -9,7 +9,11 @@ import type { Config } from './config';
 import { AppModule, type AppDeps } from './app.module';
 import { AllExceptionsFilter, mapException } from './common/all-exceptions.filter';
 
-export const BODY_LIMIT = '1mb';
+/**
+ * The largest VALID request is a 1000-change batch of 20 tags x 50 characters: about 1.2 MB in ASCII and about 2.3 MB
+ * in Cyrillic (2 bytes a character). 4 MB leaves room for both and still stops a flood of junk early.
+ */
+export const BODY_LIMIT = '4mb';
 
 /** Builds the Nest app. Shared by main.ts and by tests, which run the *real* HTTP server. */
 export const createApp = async (deps: AppDeps): Promise<INestApplication> => {

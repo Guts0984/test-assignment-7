@@ -1,14 +1,22 @@
 import { z } from 'zod';
 import { authorSchema } from './batch';
-import { categorySchema, priceSchema, statusSchema, tagSchema, fieldValueSchemas } from './product';
+import {
+  NUL_MESSAGE,
+  categorySchema,
+  fieldValueSchemas,
+  noNul,
+  priceSchema,
+  statusSchema,
+  tagSchema,
+} from './product';
 import { isDecimalString } from './decimal';
 
 const decimalStr = z.string().refine(isDecimalString, 'decimal');
 
 /** Filter shared by the grid and bulk jobs (so "current filter" means the same on both sides). */
 export const productFilterSchema = z.object({
-  sku: z.string().max(100).optional(),
-  name: z.string().max(200).optional(),
+  sku: z.string().max(100).refine(noNul, NUL_MESSAGE).optional(),
+  name: z.string().max(200).refine(noNul, NUL_MESSAGE).optional(),
   category: z.array(categorySchema).max(20).optional(),
   status: z.array(statusSchema).max(3).optional(),
   priceMin: decimalStr.optional(),

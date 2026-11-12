@@ -37,9 +37,40 @@ type Props = {
 
 const KINDS: OperationKind[] = ['percent', 'absolute', 'set', 'addTag', 'removeTag'];
 
+const JOB_ACTIVE = ['queued', 'running', 'cancelling', 'reverting'];
+const jobQueryOptions = (jobId: string) => ({
+  queryKey: bulkKeys.job(jobId),
+  queryFn: () => getBulkJob(jobId),
+  refetchInterval: (q: { state: { data?: { status: string } | undefined } }) =>
+    q.state.data && !JOB_ACTIVE.includes(q.state.data.status) ? (false as const) : 400,
+  staleTime: 0,
+});
+
+/**
+ * Watches the job for as long as the DIALOG component lives (not the panel inside it): closing the dialog
+ * unmounts the panel, but the job keeps running on the server, so the table must still reload when it ends.
+ * Tells the page once per finished phase (apply, then revert).
+ */
+const useJobWatcher = (jobId: string | null, onFinished: () => void) => {
+  const job = useQuery({ ...jobQueryOptions(jobId ?? ''), enabled: jobId !== null });
+  const reported = useRef<string | null>(null);
+  const status = jobId === null ? undefined : job.data?.status;
+  useEffect(() => {
+    if (!jobId) reported.current = null;
+  }, [jobId]);
+  useEffect(() => {
+    if (!status || JOB_ACTIVE.includes(status)) return;
+    if (reported.current !== `${jobId}:${status}`) {
+      reported.current = `${jobId}:${status}`;
+      onFinished();
+    }
+  }, [jobId, status, onFinished]);
+};
+
 export const BulkDialog = ({ open, onOpenChange, filter, locale, onFinished }: Props) => {
   const t = useTranslations();
   const [jobId, setJobId] = useState<string | null>(null);
+  useJobWatcher(jobId, onFinished);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent aria-describedby="bulk-desc">
@@ -48,7 +79,7 @@ export const BulkDialog = ({ open, onOpenChange, filter, locale, onFinished }: P
         {jobId === null ? (
           <BulkForm filter={filter} locale={locale} onStarted={setJobId} />
         ) : (
-          <JobPanel jobId={jobId} onFinished={onFinished} onNew={() => setJobId(null)} />
+          <JobPanel jobId={jobId} onNew={() => setJobId(null)} />
         )}
         <div className="flex justify-end">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
@@ -85,10 +116,16 @@ const BulkForm = ({
   const built = buildOperation({ kind, field, text }, locale);
   const fieldChoices = kind === 'set' ? SET_FIELDS : NUMBER_FIELDS;
 
+  const attempt = useRef<{ sig: string; key: string } | null>(null);
   const start = useMutation({
     mutationFn: () => {
       if (!built.ok) throw new Error('invalid');
-      return createBulkJob({ filter, operation: built.operation });
+      const body = { filter, operation: built.operation };
+      // The same request (double click, retry after a timeout) carries the same key and so starts ONE job;
+      // changing the inputs is a different request and gets a new key.
+      const sig = JSON.stringify(body);
+      if (attempt.current?.sig !== sig) attempt.current = { sig, key: crypto.randomUUID() };
+      return createBulkJob(body, attempt.current.key);
     },
     onSuccess: (job) => onStarted(job.id),
   });
@@ -241,22 +278,9 @@ const BulkForm = ({
   );
 };
 
-export const JobPanel = ({
-  jobId,
-  onFinished,
-  onNew,
-}: {
-  jobId: string;
-  onFinished: () => void;
-  onNew: () => void;
-}) => {
+export const JobPanel = ({ jobId, onNew }: { jobId: string; onNew: () => void }) => {
   const t = useTranslations();
-  const job = useQuery({
-    queryKey: bulkKeys.job(jobId),
-    queryFn: () => getBulkJob(jobId),
-    refetchInterval: (q) => (q.state.data && !isActiveJob(q.state.data) ? false : 400),
-    staleTime: 0,
-  });
+  const job = useQuery(jobQueryOptions(jobId));
   const cancel = useMutation({
     mutationFn: () => cancelBulkJob(jobId),
     onSuccess: () => job.refetch(),
@@ -265,17 +289,6 @@ export const JobPanel = ({
     mutationFn: () => revertBulkJob(jobId),
     onSuccess: () => job.refetch(),
   });
-
-  // Tell the page once per finished phase (apply, then revert) so the table reloads without a page refresh.
-  const reported = useRef<string | null>(null);
-  const status = job.data?.status;
-  useEffect(() => {
-    if (!status || ['queued', 'running', 'cancelling', 'reverting'].includes(status)) return;
-    if (reported.current !== status) {
-      reported.current = status;
-      onFinished();
-    }
-  }, [status, onFinished]);
 
   if (job.isError)
     return (

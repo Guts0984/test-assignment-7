@@ -8,26 +8,32 @@ import type { SyncStatus } from '../lib/sync-engine';
 /** "N unsaved" / "saved" / "error", announced politely to screen readers. */
 export const SyncIndicator = ({
   status,
+  problems = 0,
   className,
 }: {
   status: SyncStatus;
+  /** Cells that were refused or are in conflict: "all saved" would be a lie while any exist. */
+  problems?: number;
   className?: string;
 }) => {
   const t = useTranslations('sync');
   const { state, unsaved, lastError } = status;
-  const text =
-    state === 'saved'
+  const attention = state === 'saved' && problems > 0;
+  const text = attention
+    ? t('needsAttention', { count: problems })
+    : state === 'saved'
       ? t('saved')
       : state === 'retrying'
         ? t('retrying', { count: unsaved })
         : state === 'error'
           ? lastError === 'Session expired'
             ? t('sessionExpired')
-            : t('error', { message: lastError ?? '' })
+            : t('error')
           : unsaved > 0
             ? t('unsaved', { count: unsaved })
             : t('saved');
-  const Icon = state === 'saved' ? Check : state === 'saving' ? Loader2 : AlertTriangle;
+  const Icon =
+    state === 'saved' && !attention ? Check : state === 'saving' ? Loader2 : AlertTriangle;
   return (
     <p
       role="status"
@@ -35,7 +41,8 @@ export const SyncIndicator = ({
       data-state={state}
       className={cn(
         'flex items-center gap-1.5 text-sm',
-        state === 'saved' && 'text-muted-foreground',
+        state === 'saved' && !attention && 'text-muted-foreground',
+        attention && 'text-warning',
         (state === 'retrying' || state === 'error') && 'text-danger',
         className,
       )}

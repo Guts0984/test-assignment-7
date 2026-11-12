@@ -41,3 +41,28 @@ export const redo = (s: UndoStack): { stack: UndoStack; action: UndoAction } | n
   if (!action) return null;
   return { action, stack: make([...s.past, action], s.future.slice(0, -1)) };
 };
+
+/**
+ * The server refused a change that is already on the undo stack: it never happened, so Ctrl+Z must not spend a
+ * step "undoing" it (and Ctrl+Shift+Z must not send the refused value again). Removes that one change from the
+ * newest action holding it; an action left empty disappears.
+ */
+export const discardChange = (
+  s: UndoStack,
+  c: { id: string; field: EditableField; after: unknown },
+): UndoStack => {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  for (let i = s.past.length - 1; i >= 0; i--) {
+    const action = s.past[i]!;
+    const at = action.changes.findIndex(
+      (x) => x.id === c.id && x.field === c.field && same(x.after, c.after),
+    );
+    if (at < 0) continue;
+    const changes = action.changes.filter((_, k) => k !== at);
+    const past = changes.length
+      ? s.past.map((a, k) => (k === i ? { ...a, changes } : a))
+      : s.past.filter((_, k) => k !== i);
+    return make(past, s.future);
+  }
+  return s;
+};

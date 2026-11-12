@@ -66,7 +66,7 @@ describe('unified error format, never 5xx for bad input', () => {
     apiErrorSchema.parse(await r.json());
   });
   it('oversize body -> 413 without buffering it all', async () => {
-    const big = JSON.stringify({ pad: 'x'.repeat(2 * 1024 * 1024) });
+    const big = JSON.stringify({ pad: 'x'.repeat(5 * 1024 * 1024) });
     const r = await post('/auth/login', big, { 'content-type': 'application/json' });
     expect(r.status).toBe(413);
     expect(apiErrorSchema.parse(await r.json()).error.code).toBe('payload_too_large');

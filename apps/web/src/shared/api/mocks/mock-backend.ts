@@ -197,6 +197,7 @@ export const createMockBackend = (size = 2000) => {
     authorId: string | null;
   };
   const jobs = new Map<string, Job>();
+  const jobByKey = new Map<string, string>(); // Idempotency-Key -> job id
   let jobSeq = 0;
   const CHUNK = 250;
 
@@ -357,7 +358,11 @@ export const createMockBackend = (size = 2000) => {
       if (!me) return unauthorized();
       if (me.role === 'viewer') return err(403, 'forbidden', 'Your role cannot do this');
       const body = (await request.json()) as { filter: ProductFilter; operation: BulkOperation };
-      state.requests.push({ path: '/bulk-jobs', body, status: 201 });
+      const key = request.headers.get('idempotency-key');
+      state.requests.push({ path: '/bulk-jobs', body, status: 201, ...(key ? { key } : {}) });
+      const known = key ? jobByKey.get(`${me.id}:${key}`) : undefined;
+      if (known && jobs.has(known))
+        return HttpResponse.json(viewOf(jobs.get(known)!), { status: 201 });
       const id = `00000000-0000-4000-8000-9${String(++jobSeq).padStart(11, '0')}`;
       const items = products
         .filter((p) => matchesFilter(p, body.filter))
@@ -375,6 +380,7 @@ export const createMockBackend = (size = 2000) => {
         authorId: me.id,
       };
       jobs.set(id, job);
+      if (key) jobByKey.set(`${me.id}:${key}`, id);
       return HttpResponse.json(viewOf(job), { status: 201 });
     }),
     http.get('*/api/bulk-jobs/:id', ({ params }) => {
@@ -524,6 +530,8 @@ export const createMockBackend = (size = 2000) => {
       state.requests = [];
       me = null;
     },
+    jobCount: () => jobs.size,
+    bulkRequests: () => state.requests.filter((r) => r.path === '/bulk-jobs'),
     batchRequests: () => state.requests.filter((r) => r.path === '/products/batch'),
   };
 };

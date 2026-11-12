@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { UNDO_LIMIT, emptyStack, pushAction, redo, undo, type UndoAction } from './undo-stack';
+import {
+  UNDO_LIMIT,
+  discardChange,
+  emptyStack,
+  pushAction,
+  redo,
+  undo,
+  type UndoAction,
+} from './undo-stack';
 
 const act = (n: number, cells = 1): UndoAction => ({
   changes: Array.from({ length: cells }, (_, i) => ({
@@ -59,5 +67,28 @@ describe('undo stack', () => {
     expect([s.undoDepth, s.redoDepth]).toEqual([0, 5]);
     for (let i = 0; i < 5; i++) s = redo(s)!.stack;
     expect([s.undoDepth, s.redoDepth]).toEqual([5, 0]);
+  });
+});
+
+describe('discardChange (the server refused it)', () => {
+  it('removes the refused change from the newest action holding it; a now-empty action disappears', () => {
+    let s = pushAction(emptyStack, act(1));
+    s = pushAction(s, act(2, 3));
+    s = discardChange(s, { id: 'id-2-1', field: 'stock', after: 2 });
+    expect(s.undoDepth).toBe(2);
+    expect(undo(s)!.action.changes.map((c) => c.id)).toEqual(['id-2-0', 'id-2-2']);
+    s = discardChange(s, { id: 'id-1-0', field: 'stock', after: 1 });
+    expect(s.undoDepth).toBe(1); // the single-change action vanished
+  });
+  it('matches on the value too: an older edit of the same cell is not touched', () => {
+    let s = pushAction(emptyStack, { changes: [{ id: 'a', field: 'stock', before: 1, after: 2 }] });
+    s = pushAction(s, { changes: [{ id: 'a', field: 'stock', before: 2, after: 3 }] });
+    s = discardChange(s, { id: 'a', field: 'stock', after: 3 });
+    expect(s.undoDepth).toBe(1);
+    expect(undo(s)!.action.changes[0]!.after).toBe(2);
+  });
+  it('an unknown change leaves the stack as it was', () => {
+    const s = pushAction(emptyStack, act(1));
+    expect(discardChange(s, { id: 'nope', field: 'stock', after: 1 })).toBe(s);
   });
 });

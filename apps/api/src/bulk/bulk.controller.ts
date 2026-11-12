@@ -1,13 +1,17 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
-import { ApiBody, ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBody, ApiCookieAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import {
+  IDEMPOTENCY_HEADER,
   createBulkJobSchema,
+  idempotencyKeySchema,
   previewBulkJobSchema,
   type BulkJob,
   type CreateBulkJob,
   type ProductFilter,
 } from '@catalog/shared';
+import { httpError } from '../common/http-error';
 import { jsonSchema } from '../common/swagger';
 import { zodPipe } from '../common/zod.pipe';
 import { CurrentUser, Roles, type AuthUser } from '../auth/public.decorator';
@@ -36,12 +40,27 @@ export class BulkController {
   @Post()
   @Roles('admin', 'editor')
   @ApiOperation({ summary: 'Start a background bulk change over a filter' })
+  @ApiHeader({
+    name: IDEMPOTENCY_HEADER,
+    required: false,
+    description: 'Repeating the same request returns the same job instead of starting another',
+  })
   @ApiBody({ schema: jsonSchema(createBulkJobSchema) })
-  create(
+  async create(
     @CurrentUser() me: AuthUser,
     @Body(zodPipe(createBulkJobSchema)) body: CreateBulkJob,
+    @Headers('idempotency-key') rawKey: string | string[] | undefined,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<BulkJob> {
-    return this.bulk.create(me, body);
+    let key: string | undefined;
+    if (rawKey !== undefined) {
+      const k = idempotencyKeySchema.safeParse(rawKey);
+      if (!k.success) throw httpError(400, 'validation_failed', 'Invalid Idempotency-Key header');
+      key = k.data;
+    }
+    const out = await this.bulk.createOnce(me, body, key);
+    if (out.replayed) res.setHeader('idempotent-replayed', 'true');
+    return out.job;
   }
 
   @Get()
